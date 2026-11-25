@@ -14,7 +14,7 @@ const BANNER_IMAGE_SRC = '/assets/aistudio/image_2e94d0ae.png';
 const BRAND_IMAGE_SRC = '/assets/aistudio/image_b65aae5b.png';
 
 const NAV_ITEMS: { id: ActiveView; label: string }[] = [
-  { id: 'plano', label: 'Plano' },
+  { id: 'croquis', label: 'Croquis' },
   { id: 'invitados', label: 'Invitados' },
   { id: 'resumen', label: 'Resumen' },
   { id: 'control', label: 'Control' },
@@ -96,8 +96,8 @@ export function TopBar({
         {/* Zone 1: Ceremonial brand emblem image replacing Plano de Gala */}
         <button
           type="button"
-          onClick={() => onChangeView('plano')}
-          aria-label="Acto de Egreso — Ir al plano"
+          onClick={() => onChangeView('croquis')}
+          aria-label="Acto de Egreso — Ir al croquis"
           className="flex items-center shrink-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4B45E] transition-transform duration-150 hover:scale-[1.02]"
         >
           {!brandImgError ? (
@@ -120,7 +120,7 @@ export function TopBar({
         {/* Zone 2: Clean single-line navigation links */}
         <nav
           aria-label="Vistas principales"
-          className="flex items-center gap-5 sm:gap-9"
+          className="flex items-center gap-4 sm:gap-7 min-w-0 overflow-x-auto no-scrollbar"
         >
           {NAV_ITEMS.map((item) => {
             const isActive = activeView === item.id;
@@ -129,7 +129,7 @@ export function TopBar({
                 key={item.id}
                 type="button"
                 onClick={() => onChangeView(item.id)}
-                className={`relative py-2 text-sm font-semibold tracking-wide whitespace-nowrap shrink-0 drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4B45E] rounded ${
+                className={`relative py-2.5 text-xs sm:text-sm font-semibold tracking-wide whitespace-nowrap shrink-0 drop-shadow-[0_1px_4px_rgba(0,0,0,0.95)] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D4B45E] rounded ${
                   isActive
                     ? 'text-[#F1D68A]'
                     : 'text-[#F5F0E4]/90 hover:text-white'
@@ -139,7 +139,7 @@ export function TopBar({
                 {isActive && (
                   <span
                     aria-hidden="true"
-                    className="absolute left-0 right-0 -bottom-[22px] sm:-bottom-[30px] h-[2px] bg-[#D4B45E] shadow-[0_0_8px_rgba(212,180,94,0.65)]"
+                    className="absolute left-0 right-0 bottom-0 h-[2px] bg-[#D4B45E] shadow-[0_0_8px_rgba(212,180,94,0.65)]"
                   />
                 )}
               </button>
@@ -234,7 +234,7 @@ export function TopBar({
                 />
                 <div>
                   <div className="text-sm font-semibold text-[#1F2421] whitespace-nowrap">
-                    Imprimir plano
+                    Imprimir croquis
                   </div>
                   <div className="text-xs text-[#5C635E] mt-0.5">
                     Formato horizontal listo para papel o PDF

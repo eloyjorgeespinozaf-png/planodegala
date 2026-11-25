@@ -186,7 +186,7 @@ export function SummaryView({
 
       <p className="mt-4 text-xs text-[#F3EFE6]/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
         Sincronizado en tiempo real con Firebase Firestore. Haz clic en
-        cualquier fila para ir directamente a ese toldo en el plano.
+        cualquier fila para enfocar directamente ese toldo en el croquis.
       </p>
     </div>
   );

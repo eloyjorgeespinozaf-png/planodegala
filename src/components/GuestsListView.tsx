@@ -248,15 +248,15 @@ export function GuestsListView({
             Aún no hay mesas asignadas
           </h2>
           <p className="mt-2 text-sm text-[#5C635E] max-w-md mx-auto">
-            Selecciona cualquier mesa en el plano para registrar el nombre de la
-            familia o invitado, su número de comensales y notas especiales.
+            Selecciona cualquier mesa en el croquis para registrar el nombre de
+            la familia o invitado, su número de comensales y notas especiales.
           </p>
           <button
             type="button"
             onClick={onBackToPlan}
             className="mt-6 px-5 py-2.5 text-sm font-semibold text-white bg-[#0F6B4E] hover:bg-[#0B533C] rounded-lg transition-colors whitespace-nowrap"
           >
-            Ir al plano de mesas
+            Ir al croquis de mesas
           </button>
         </div>
       ) : filteredAndSortedRows.length === 0 ? (

@@ -9,7 +9,7 @@ import {
   exportToStandaloneHTML,
 } from './utils/exporters';
 import { TopBar } from './components/TopBar';
-import { FloorPlanView } from './components/FloorPlanView';
+import { CroquisView } from './components/CroquisView';
 import { GuestsListView } from './components/GuestsListView';
 import { SummaryView } from './components/SummaryView';
 import { ControlPanelView } from './components/ControlPanelView';
@@ -53,7 +53,7 @@ export default function App() {
     changePassword,
   } = useControlPanel(showToast);
 
-  const [activeView, setActiveView] = useState<ActiveView>('plano');
+  const [activeView, setActiveView] = useState<ActiveView>('croquis');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('todas');
   const [selectedTable, setSelectedTable] = useState<TableSelection | null>(
@@ -61,6 +61,9 @@ export default function App() {
   );
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const [bgError, setBgError] = useState(false);
+  const [pendingFocusToldoId, setPendingFocusToldoId] = useState<number | null>(
+    null
+  );
 
   const handleExportHTML = async () => {
     await exportToStandaloneHTML(assignments);
@@ -78,8 +81,8 @@ export default function App() {
   };
 
   const handlePrint = () => {
-    if (activeView !== 'plano') {
-      setActiveView('plano');
+    if (activeView !== 'croquis') {
+      setActiveView('croquis');
       window.setTimeout(() => window.print(), 120);
     } else {
       window.print();
@@ -87,11 +90,8 @@ export default function App() {
   };
 
   const handleJumpToToldo = (toldoId: number) => {
-    setActiveView('plano');
-    window.setTimeout(() => {
-      const target = document.getElementById(`toldo-${toldoId}`);
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 60);
+    setPendingFocusToldoId(toldoId);
+    setActiveView('croquis');
   };
 
   // Compute modal edit permission based on Control Panel rules
@@ -212,7 +212,7 @@ export default function App() {
         {loading ? (
           <div className="bg-[#FBF9F5]/95 backdrop-blur-md border border-[#C9A959]/45 rounded-xl px-6 py-12 text-center shadow-[0_12px_32px_-16px_rgba(0,0,0,0.65)]">
             <p className="font-display text-2xl font-bold text-[#1F2421]">
-              Cargando plano sincronizado...
+              Cargando croquis sincronizado...
             </p>
             <p className="mt-2 text-sm text-[#5C635E]">
               Conectando con la base de datos de reservas en Firebase Firestore.
@@ -220,16 +220,14 @@ export default function App() {
           </div>
         ) : (
           <>
-            {activeView === 'plano' && (
-              <FloorPlanView
+            {activeView === 'croquis' && (
+              <CroquisView
                 assignments={assignments}
                 toldoStats={toldoStats}
                 totals={totals}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                statusFilter={statusFilter}
-                onStatusFilterChange={setStatusFilter}
                 onSelectTable={setSelectedTable}
+                initialFocusToldoId={pendingFocusToldoId}
+                onClearInitialFocus={() => setPendingFocusToldoId(null)}
               />
             )}
 
@@ -241,7 +239,7 @@ export default function App() {
                 statusFilter={statusFilter}
                 onStatusFilterChange={setStatusFilter}
                 onSelectTable={setSelectedTable}
-                onBackToPlan={() => setActiveView('plano')}
+                onBackToPlan={() => setActiveView('croquis')}
               />
             )}
 

@@ -2,7 +2,7 @@ export type TableTag = 'estandar' | 'vip' | 'familia' | 'honor';
 
 export type StatusFilter = 'todas' | 'libres' | 'ocupadas' | 'sobrantes' | 'vip';
 
-export type ActiveView = 'plano' | 'invitados' | 'resumen' | 'control';
+export type ActiveView = 'croquis' | 'invitados' | 'resumen' | 'control';
 
 export interface ControlPanelConfig {
   passwordHash: string;
