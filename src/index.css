@@ -78,10 +78,11 @@
 
 @media print {
   @page {
-    margin: 12mm;
+    margin: 10mm;
     size: landscape;
   }
 
+  html,
   body {
     background: #ffffff !important;
     color: #1f2421 !important;
@@ -96,5 +97,10 @@
   .print-avoid-break {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .print-break-before {
+    break-before: page;
+    page-break-before: always;
   }
 }

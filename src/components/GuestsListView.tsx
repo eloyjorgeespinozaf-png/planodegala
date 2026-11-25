@@ -10,6 +10,8 @@ import {
   buildTableId,
   formatRemainingSeats,
   getRemainingSeats,
+  getTableBookings,
+  hasVipOrHonorBooking,
 } from '../types/seating';
 
 interface GuestsListViewProps {
@@ -70,20 +72,21 @@ export function GuestsListView({
   const filteredAndSortedRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const filtered = allAssignedRows.filter((row) => {
-      const isVip =
-        row.assignment.tag === 'vip' || row.assignment.tag === 'honor';
+      const isVip = hasVipOrHonorBooking(row.assignment);
       const remaining = getRemainingSeats(row.assignment.guestsCount);
       if (statusFilter === 'vip' && !isVip) return false;
       if (statusFilter === 'sobrantes' && remaining <= 0) return false;
       if (statusFilter === 'libres') return false;
 
       if (!q) return true;
+      const bookings = getTableBookings(row.assignment);
       const haystack = [
         row.toldoName,
         `m${row.tableNumber}`,
         `mesa ${row.tableNumber}`,
+        bookings.length > 1 ? 'compartida' : '',
         row.assignment.guestName,
-        TAG_LABELS[row.assignment.tag],
+        ...bookings.flatMap((b) => [b.guestName, TAG_LABELS[b.tag], b.notes]),
         row.assignment.notes,
       ]
         .join(' ')
@@ -343,9 +346,9 @@ export function GuestsListView({
               </thead>
               <tbody className="divide-y divide-[#E4DCCE]/70 text-sm">
                 {filteredAndSortedRows.map((row) => {
-                  const isVip =
-                    row.assignment.tag === 'vip' ||
-                    row.assignment.tag === 'honor';
+                  const isVip = hasVipOrHonorBooking(row.assignment);
+                  const bookings = getTableBookings(row.assignment);
+                  const rem = getRemainingSeats(row.assignment.guestsCount);
                   return (
                     <tr
                       key={row.tableId}
@@ -374,7 +377,20 @@ export function GuestsListView({
                         </span>
                       </td>
                       <td className="py-3 px-4 font-semibold text-[#1F2421]">
-                        {row.assignment.guestName}
+                        {bookings.length > 1 ? (
+                          <div className="space-y-0.5">
+                            {bookings.map((b, idx) => (
+                              <div key={`${b.guestName}-${idx}`} className="text-sm">
+                                <span>{b.guestName}</span>
+                                <span className="ml-1.5 font-mono tabular-nums text-xs font-medium text-[#0F6B4E]">
+                                  ({b.guestsCount} {b.guestsCount === 1 ? 'silla' : 'sillas'})
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          row.assignment.guestName
+                        )}
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
                         <span
@@ -389,29 +405,22 @@ export function GuestsListView({
                         {row.assignment.guestsCount} / 10
                       </td>
                       <td className="py-3 px-4 text-right font-mono tabular-nums whitespace-nowrap">
-                        {(() => {
-                          const rem = getRemainingSeats(
-                            row.assignment.guestsCount
-                          );
-                          return (
-                            <span
-                              className={
-                                rem > 0
-                                  ? 'font-semibold text-[#B59449]'
-                                  : 'text-[#5C635E]'
-                              }
-                            >
-                              {rem > 0 ? formatRemainingSeats(rem) : '0 (Completa)'}
-                            </span>
-                          );
-                        })()}
+                        <span
+                          className={
+                            rem > 0
+                              ? 'font-semibold text-[#B59449]'
+                              : 'text-[#5C635E]'
+                          }
+                        >
+                          {rem > 0 ? formatRemainingSeats(rem) : '0 (Completa)'}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-xs text-[#5C635E] max-w-xs truncate">
                         {row.assignment.notes || '—'}
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap no-print">
                         <span className="text-xs font-semibold text-[#0F6B4E] hover:underline underline-offset-4">
-                          Editar
+                          {rem > 0 ? 'Completar / Editar' : 'Ver / Editar'}
                         </span>
                       </td>
                     </tr>

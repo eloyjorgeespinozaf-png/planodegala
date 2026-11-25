@@ -5,6 +5,7 @@ import {
   TAG_LABELS,
   TOLDOS_CONFIG,
   buildTableId,
+  formatSharedOccupantsSummary,
   getRemainingSeats,
 } from '../types/seating';
 
@@ -53,8 +54,8 @@ export function exportToCSV(assignments: AssignmentsMap): void {
           [
             toldo.name,
             `Mesa ${i}`,
-            'Reservada',
-            entry.guestName,
+            entry.reservations.length > 1 ? 'Compartida' : 'Reservada',
+            formatSharedOccupantsSummary(entry),
             occupied,
             remaining,
             TAG_LABELS[entry.tag],

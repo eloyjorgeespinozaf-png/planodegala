@@ -10,6 +10,7 @@ import {
   Hand,
   Maximize2,
   Minimize2,
+  Printer,
   RotateCcw,
   Search,
   X,
@@ -19,15 +20,26 @@ import {
 import croquisHdImg from '../assets/images/croquis_salon_hd_1795641348750.jpg';
 import {
   AssignmentsMap,
-  SEATS_PER_TABLE,
   TAG_LABELS,
   TableAssignment,
   TableSelection,
   buildTableId,
   formatRemainingSeats,
+  formatSharedOccupantsSummary,
   getRemainingSeats,
+  getTableBookings,
+  hasVipOrHonorBooking,
 } from '../types/seating';
 import { ToldoStats } from '../hooks/useSeatingStore';
+import {
+  RECT_CHAIRS,
+  ROUND_CHAIRS,
+  TABLE_SLOTS,
+  TOLDO_BANDS,
+  TableShape,
+  getShortTableLabel,
+} from '../utils/croquisLayout';
+import { CroquisPrintReport } from './CroquisPrintReport';
 
 interface CroquisViewProps {
   assignments: AssignmentsMap;
@@ -43,6 +55,7 @@ interface CroquisViewProps {
     occupancyRate: number;
   };
   onSelectTable: (selection: TableSelection) => void;
+  onPrint?: () => void;
   initialFocusToldoId?: number | null;
   onClearInitialFocus?: () => void;
 }
@@ -56,101 +69,10 @@ type CroquisFilter =
   | 'limpio';
 
 type ShapeFilter = 'todas' | 'round' | 'rect';
-type TableShape = 'round' | 'rect';
-
-interface ToldoBand {
-  toldoId: number;
-  toldoName: string;
-  topPct: number;
-  heightPct: number;
-}
-
-interface TableLayoutSlot {
-  tableNumber: number;
-  shape: TableShape;
-  xPct: number;
-  yOffsetRatio: number;
-}
 
 const MIN_ZOOM = 100;
 const MAX_ZOOM = 250;
 const ZOOM_STEP = 30;
-
-/**
- * Exact vertical canopy bands measured from the remastered 1200x896 HD croquis.
- * Toldo 4 (51.8% – 63.3%) is the Dance Floor / Stage band.
- */
-const TOLDO_BANDS: ToldoBand[] = [
-  { toldoId: 8, toldoName: 'TOLDO 8', topPct: 4.1, heightPct: 11.9 },
-  { toldoId: 3, toldoName: 'TOLDO 3', topPct: 16.0, heightPct: 11.9 },
-  { toldoId: 2, toldoName: 'TOLDO 2', topPct: 27.9, heightPct: 11.9 },
-  { toldoId: 1, toldoName: 'TOLDO 1', topPct: 39.8, heightPct: 11.8 },
-  { toldoId: 5, toldoName: 'TOLDO 5', topPct: 63.4, heightPct: 11.5 },
-  { toldoId: 6, toldoName: 'TOLDO 6', topPct: 74.9, heightPct: 11.3 },
-  { toldoId: 7, toldoName: 'TOLDO 7', topPct: 86.2, heightPct: 11.4 },
-];
-
-/**
- * Exact 15-table architectural placement per Toldo matching the alternating
- * round & rectangular banquet tables drawn inside the HD croquis:
- * - Top row (M1..M7): Round, Rect, Round, Rect, Round, Rect, Round
- * - Bottom row (M8..M14): Rect, Round, Rect, Round, Rect, Round, Rect
- * - Right wing (M15): Round table in the clean right aisle between plants
- */
-const TABLE_SLOTS: TableLayoutSlot[] = [
-  // Top row (7 alternating tables)
-  { tableNumber: 1, shape: 'round', xPct: 23.7, yOffsetRatio: 0.29 },
-  { tableNumber: 2, shape: 'rect', xPct: 33.4, yOffsetRatio: 0.29 },
-  { tableNumber: 3, shape: 'round', xPct: 42.6, yOffsetRatio: 0.29 },
-  { tableNumber: 4, shape: 'rect', xPct: 51.9, yOffsetRatio: 0.29 },
-  { tableNumber: 5, shape: 'round', xPct: 60.9, yOffsetRatio: 0.29 },
-  { tableNumber: 6, shape: 'rect', xPct: 70.1, yOffsetRatio: 0.29 },
-  { tableNumber: 7, shape: 'round', xPct: 79.3, yOffsetRatio: 0.29 },
-  // Bottom row (7 alternating tables)
-  { tableNumber: 8, shape: 'rect', xPct: 26.3, yOffsetRatio: 0.75 },
-  { tableNumber: 9, shape: 'round', xPct: 34.8, yOffsetRatio: 0.75 },
-  { tableNumber: 10, shape: 'rect', xPct: 43.3, yOffsetRatio: 0.75 },
-  { tableNumber: 11, shape: 'round', xPct: 52.0, yOffsetRatio: 0.75 },
-  { tableNumber: 12, shape: 'rect', xPct: 60.5, yOffsetRatio: 0.75 },
-  { tableNumber: 13, shape: 'round', xPct: 69.0, yOffsetRatio: 0.75 },
-  { tableNumber: 14, shape: 'rect', xPct: 77.5, yOffsetRatio: 0.75 },
-  // Table 15 (clean right-wing round table inside the hall wall)
-  { tableNumber: 15, shape: 'round', xPct: 83.9, yOffsetRatio: 0.52 },
-];
-
-const ROUND_CHAIRS = Array.from({ length: SEATS_PER_TABLE }, (_, idx) => {
-  const angleDeg = idx * 36 - 90;
-  const rad = (angleDeg * Math.PI) / 180;
-  return {
-    chairNum: idx + 1,
-    cx: Number((40 + 31 * Math.cos(rad)).toFixed(1)),
-    cy: Number((40 + 31 * Math.sin(rad)).toFixed(1)),
-    rot: angleDeg + 90,
-  };
-});
-
-// 10 chairs around a rectangular banquet table: 4 top, 4 bottom, 1 left head, 1 right head
-const RECT_CHAIRS: { chairNum: number; x: number; y: number; w: number; h: number }[] = [
-  { chairNum: 1, x: 20, y: 2, w: 12, h: 7 },
-  { chairNum: 2, x: 38, y: 2, w: 12, h: 7 },
-  { chairNum: 3, x: 56, y: 2, w: 12, h: 7 },
-  { chairNum: 4, x: 74, y: 2, w: 12, h: 7 },
-  { chairNum: 5, x: 96, y: 21, w: 7, h: 12 },
-  { chairNum: 6, x: 74, y: 45, w: 12, h: 7 },
-  { chairNum: 7, x: 56, y: 45, w: 12, h: 7 },
-  { chairNum: 8, x: 38, y: 45, w: 12, h: 7 },
-  { chairNum: 9, x: 20, y: 45, w: 12, h: 7 },
-  { chairNum: 10, x: 3, y: 21, w: 7, h: 12 },
-];
-
-function getShortLabel(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length <= 1) return name.slice(0, 11);
-  if (parts[0].toLowerCase() === 'familia' && parts[1]) {
-    return parts[1].slice(0, 11);
-  }
-  return parts[0].slice(0, 11);
-}
 
 function RoundCroquisTable({
   tableNumber,
@@ -248,7 +170,7 @@ function RoundCroquisTable({
           fontWeight="600"
           fontFamily="IBM Plex Mono, monospace"
         >
-          {zoom >= 150 ? getShortLabel(entry.guestName) : `${entry.guestsCount}/10`}
+          {zoom >= 150 ? getShortTableLabel(entry.guestName, 11) : `${entry.guestsCount}/10`}
         </text>
       )}
     </svg>
@@ -355,7 +277,7 @@ function RectCroquisTable({
           fontWeight="600"
           fontFamily="Plus Jakarta Sans, sans-serif"
         >
-          {getShortLabel(entry.guestName)} ({entry.guestsCount}/10)
+          {getShortTableLabel(entry.guestName, 11)} ({entry.guestsCount}/10)
         </text>
       )}
     </svg>
@@ -367,6 +289,7 @@ export function CroquisView({
   toldoStats,
   totals,
   onSelectTable,
+  onPrint,
   initialFocusToldoId,
   onClearInitialFocus,
 }: CroquisViewProps) {
@@ -436,8 +359,7 @@ export function CroquisView({
         const isOccupied = Boolean(entry);
         const hasSpare =
           isOccupied && getRemainingSeats(entry!.guestsCount) > 0;
-        const isVip =
-          isOccupied && (entry?.tag === 'vip' || entry?.tag === 'honor');
+        const isVip = hasVipOrHonorBooking(entry);
 
         let matchesFilter = true;
         if (filter === 'ocupadas') matchesFilter = isOccupied;
@@ -451,13 +373,15 @@ export function CroquisView({
 
         let matchesQuery = true;
         if (trimmedQuery) {
+          const bookings = getTableBookings(entry);
           const hay = [
             band.toldoName,
             `m${slot.tableNumber}`,
             `mesa ${slot.tableNumber}`,
             slot.shape === 'round' ? 'redonda' : 'rectangular',
+            bookings.length > 1 ? 'compartida' : '',
             entry ? entry.guestName : 'libre',
-            entry ? TAG_LABELS[entry.tag] : '',
+            ...bookings.flatMap((b) => [b.guestName, TAG_LABELS[b.tag], b.notes]),
             entry ? entry.notes : '',
           ]
             .join(' ')
@@ -770,10 +694,28 @@ export function CroquisView({
               </div>
               {hoveredAssignment ? (
                 <>
-                  <p className="mt-1 text-xs font-semibold text-white truncate">
-                    {hoveredAssignment.guestName}
-                  </p>
-                  <p className="mt-0.5 text-[11px] font-mono tabular-nums text-[#8EE0C2]">
+                  {getTableBookings(hoveredAssignment).length > 1 ? (
+                    <div className="mt-1 space-y-0.5">
+                      {getTableBookings(hoveredAssignment).map((b, idx) => (
+                        <div
+                          key={`${b.guestName}-${idx}`}
+                          className="flex items-center justify-between gap-2 text-xs"
+                        >
+                          <span className="font-semibold text-white truncate">
+                            {b.guestName}
+                          </span>
+                          <span className="font-mono tabular-nums text-[11px] text-[#8EE0C2] shrink-0">
+                            {b.guestsCount} s.
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs font-semibold text-white truncate">
+                      {hoveredAssignment.guestName}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] font-mono tabular-nums text-[#8EE0C2]">
                     {hoveredAssignment.guestsCount}/10 sillas ocup. ·{' '}
                     <span className="text-[#F1D68A]">
                       {formatRemainingSeats(
@@ -781,12 +723,18 @@ export function CroquisView({
                       )}
                     </span>
                   </p>
-                  <p className="mt-0.5 text-[11px] text-[#F3EFE6]/75 truncate">
-                    {TAG_LABELS[hoveredAssignment.tag]}
-                    {hoveredAssignment.notes
-                      ? ` · ${hoveredAssignment.notes}`
-                      : ''}
-                  </p>
+                  {getRemainingSeats(hoveredAssignment.guestsCount) > 0 ? (
+                    <p className="mt-0.5 text-[11px] text-[#F1D68A]/90">
+                      Haz clic para sumar otra familia y completar las 10 sillas
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-[11px] text-[#F3EFE6]/75 truncate">
+                      {TAG_LABELS[hoveredAssignment.tag]}
+                      {hoveredAssignment.notes
+                        ? ` · ${hoveredAssignment.notes}`
+                        : ''}
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="mt-1 text-xs text-[#F3EFE6]/85">
@@ -801,8 +749,9 @@ export function CroquisView({
   );
 
   return (
-    <div>
-      {/* Header & Interactive Controls */}
+    <>
+      <div className="print:hidden">
+        {/* Header & Interactive Controls */}
       <section className="bg-[#FBF9F5]/92 backdrop-blur-md border border-[#D4B45E]/65 rounded-xl px-5 py-5 sm:px-7 sm:py-6 shadow-[0_18px_42px_-14px_rgba(0,0,0,0.82)]">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
           <div>
@@ -877,6 +826,17 @@ export function CroquisView({
                 <span>
                   Centrar ({matchingSearchMarkers.length})
                 </span>
+              </button>
+            )}
+
+            {onPrint && (
+              <button
+                type="button"
+                onClick={onPrint}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#1F2421] bg-white hover:bg-[#F3EFE6] border border-[#C9A959]/80 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <Printer className="w-3.5 h-3.5 text-[#0F6B4E]" aria-hidden="true" />
+                <span>Imprimir</span>
               </button>
             )}
 
@@ -1084,7 +1044,7 @@ export function CroquisView({
             {hoveredAssignment ? (
               <>
                 <span className="font-semibold text-white">
-                  {hoveredAssignment.guestName}
+                  {formatSharedOccupantsSummary(hoveredAssignment)}
                 </span>
                 <span aria-hidden="true" className="text-[#C9A959]">
                   ·
@@ -1100,6 +1060,11 @@ export function CroquisView({
                     getRemainingSeats(hoveredAssignment.guestsCount)
                   )}
                 </span>
+                {getRemainingSeats(hoveredAssignment.guestsCount) > 0 && (
+                  <span className="text-[#F3EFE6]/80">
+                    (clic para completar mesa)
+                  </span>
+                )}
               </>
             ) : (
               <span className="text-[#F3EFE6]/85">
@@ -1200,6 +1165,14 @@ export function CroquisView({
           {renderCroquisCanvas(true)}
         </div>
       )}
-    </div>
+      </div>
+
+      {/* Dedicated Explicit Landscape Print Report */}
+      <CroquisPrintReport
+        assignments={assignments}
+        toldoStats={toldoStats}
+        totals={totals}
+      />
+    </>
   );
 }

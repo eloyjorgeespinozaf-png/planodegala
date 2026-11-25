@@ -2,7 +2,7 @@
   "entities": {
     "TableReservation": {
       "title": "TableReservation",
-      "description": "Reserva de una mesa de 10 sillas en uno de los 7 toldos habilitados del salón, con acceso directo compartido.",
+      "description": "Reserva de una mesa de 10 sillas en uno de los 7 toldos habilitados del salón, admitiendo una o más familias/personas compartiendo la mesa hasta completar las 10 sillas.",
       "type": "object",
       "properties": {
         "tableId": {
@@ -22,24 +22,28 @@
         },
         "guestName": {
           "type": "string",
-          "description": "Nombre del invitado o familia asignada a la mesa.",
+          "description": "Nombre del invitado/familia principal o nombres combinados de las familias que comparten la mesa.",
           "minLength": 1,
-          "maxLength": 120
+          "maxLength": 200
         },
         "guestsCount": {
           "type": "integer",
-          "description": "Cantidad de sillas ocupadas en la mesa (1 a 10)."
+          "description": "Cantidad total de sillas ocupadas en la mesa sumando todas las reservas de la misma (1 a 10)."
         },
         "tag": {
           "type": "string",
-          "description": "Categoría protocolar de la mesa.",
+          "description": "Categoría protocolar principal de la mesa.",
           "enum": ["estandar", "vip", "familia", "honor"]
         },
         "notes": {
           "type": "string",
-          "description": "Notas opcionales (dieta, silla infantil, observaciones).",
+          "description": "Notas combinadas u opcionales (dieta, silla infantil, observaciones).",
           "minLength": 0,
           "maxLength": 240
+        },
+        "reservations": {
+          "type": "array",
+          "description": "Lista acotada (1 a 10 elementos) de familias o personas que comparten las 10 sillas de la mesa. Cada elemento contiene guestName (1..120), guestsCount (1..10), tag y notes (0..240), y la suma de guestsCount coincide con el total de la mesa (<= 10)."
         },
         "visibility": {
           "type": "string",
@@ -91,15 +95,15 @@
         },
         "reservationsLocked": {
           "type": "boolean",
-          "description": "Si es true, bloquea nuevas reservas públicas en el plano."
+          "description": "Si es true, bloquea nuevas reservas públicas (incluyendo completar mesas compartidas)."
         },
         "editRequiresAdmin": {
           "type": "boolean",
-          "description": "Si es true, editar o liberar mesas reservadas requiere desbloquear el Panel de Control."
+          "description": "Si es true, editar o quitar reservas ya existentes requiere desbloquear el Panel de Control."
         },
         "eventNotice": {
           "type": "string",
-          "description": "Aviso breve visible en el encabezado del plano para los asistentes.",
+          "description": "Aviso breve visible en el encabezado para los asistentes.",
           "minLength": 0,
           "maxLength": 180
         },
@@ -124,7 +128,7 @@
       "schema": {
         "$ref": "#/entities/TableReservation"
       },
-      "description": "Colección de reservas activas de mesas sincronizadas en tiempo real para acceso directo compartido al plano del salón."
+      "description": "Colección de reservas activas de mesas (individuales o compartidas hasta 10 sillas) sincronizadas en tiempo real."
     },
     "/appConfig/{configId}": {
       "schema": {

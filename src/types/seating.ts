@@ -13,11 +13,19 @@ export interface ControlPanelConfig {
   updatedAt: number;
 }
 
+export interface TableBooking {
+  guestName: string;
+  guestsCount: number;
+  tag: TableTag;
+  notes: string;
+}
+
 export interface TableAssignment {
   guestName: string;
   guestsCount: number;
   tag: TableTag;
   notes: string;
+  reservations: TableBooking[];
   updatedAt: number;
 }
 
@@ -44,10 +52,18 @@ export const DEFAULT_SEATS_PER_TABLE = SEATS_PER_TABLE;
 export const MIN_SEATS_PER_TABLE = 1;
 export const MAX_SEATS_PER_TABLE = SEATS_PER_TABLE;
 export const MAX_GUEST_NAME_LENGTH = 120;
+export const MAX_COMBINED_GUEST_NAME_LENGTH = 200;
 export const MAX_NOTES_LENGTH = 240;
 export const MAX_EVENT_NOTICE_LENGTH = 180;
 export const VALID_TABLE_ID_REGEX = /^toldo-(1|2|3|5|6|7|8)-mesa-([1-9]|1[0-5])$/;
 export const VALID_TOLDO_IDS = new Set([1, 2, 3, 5, 6, 7, 8]);
+
+const TAG_PRIORITY: Record<TableTag, number> = {
+  honor: 4,
+  vip: 3,
+  familia: 2,
+  estandar: 1,
+};
 
 export function getRemainingSeats(occupiedSeats: number): number {
   const clamped = Math.min(
@@ -61,6 +77,92 @@ export function formatRemainingSeats(remaining: number): string {
   if (remaining <= 0) return 'Mesa completa';
   if (remaining === 1) return 'Sobra 1 silla';
   return `Sobran ${remaining} sillas`;
+}
+
+export function getTableBookings(assignment?: TableAssignment): TableBooking[] {
+  if (!assignment) return [];
+  if (
+    Array.isArray(assignment.reservations) &&
+    assignment.reservations.length > 0
+  ) {
+    return assignment.reservations;
+  }
+  return [
+    {
+      guestName: assignment.guestName,
+      guestsCount: assignment.guestsCount,
+      tag: assignment.tag,
+      notes: assignment.notes,
+    },
+  ];
+}
+
+export function hasVipOrHonorBooking(assignment?: TableAssignment): boolean {
+  if (!assignment) return false;
+  if (assignment.tag === 'vip' || assignment.tag === 'honor') return true;
+  return getTableBookings(assignment).some(
+    (b) => b.tag === 'vip' || b.tag === 'honor'
+  );
+}
+
+export function summarizeBookings(bookings: TableBooking[]): {
+  guestName: string;
+  guestsCount: number;
+  tag: TableTag;
+  notes: string;
+  reservations: TableBooking[];
+} {
+  const cleaned = bookings
+    .map((b) => ({
+      guestName: b.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH),
+      guestsCount: Math.min(
+        MAX_SEATS_PER_TABLE,
+        Math.max(MIN_SEATS_PER_TABLE, Math.round(b.guestsCount))
+      ),
+      tag: b.tag,
+      notes: b.notes.trim().slice(0, MAX_NOTES_LENGTH),
+    }))
+    .filter((b) => b.guestName.length > 0);
+
+  const totalSeats = cleaned.reduce((sum, b) => sum + b.guestsCount, 0);
+  const combinedName = cleaned
+    .map((b) => b.guestName)
+    .join(' + ')
+    .slice(0, MAX_COMBINED_GUEST_NAME_LENGTH);
+
+  let primaryTag: TableTag = 'estandar';
+  for (const b of cleaned) {
+    if (TAG_PRIORITY[b.tag] > TAG_PRIORITY[primaryTag]) {
+      primaryTag = b.tag;
+    }
+  }
+
+  const combinedNotes = (
+    cleaned.length === 1
+      ? cleaned[0].notes
+      : cleaned
+          .filter((b) => b.notes.length > 0)
+          .map((b) => `${b.guestName}: ${b.notes}`)
+          .join(' | ')
+  ).slice(0, MAX_NOTES_LENGTH);
+
+  return {
+    guestName: combinedName,
+    guestsCount: totalSeats,
+    tag: primaryTag,
+    notes: combinedNotes,
+    reservations: cleaned,
+  };
+}
+
+export function formatSharedOccupantsSummary(
+  assignment: TableAssignment
+): string {
+  const bookings = getTableBookings(assignment);
+  if (bookings.length <= 1) return assignment.guestName;
+  return bookings
+    .map((b) => `${b.guestName} (${b.guestsCount})`)
+    .join(' + ');
 }
 
 export const TAG_LABELS: Record<TableTag, string> = {

@@ -237,7 +237,7 @@ export function TopBar({
                     Imprimir croquis
                   </div>
                   <div className="text-xs text-[#5C635E] mt-0.5">
-                    Formato horizontal listo para papel o PDF
+                    Croquis con nombres, ocupación y totales
                   </div>
                 </div>
               </button>

@@ -28,7 +28,9 @@ export default function App() {
     importableLocalCount,
     showToast,
     dismissToast,
-    saveAssignment,
+    addBookingToTable,
+    updateBookingAtIndex,
+    removeBookingAtIndex,
     freeTable,
     clearAllAssignments,
     clearToldoAssignments,
@@ -83,7 +85,7 @@ export default function App() {
   const handlePrint = () => {
     if (activeView !== 'croquis') {
       setActiveView('croquis');
-      window.setTimeout(() => window.print(), 120);
+      window.setTimeout(() => window.print(), 220);
     } else {
       window.print();
     }
@@ -94,30 +96,25 @@ export default function App() {
     setActiveView('croquis');
   };
 
-  // Compute modal edit permission based on Control Panel rules
+  // Compute modal permissions: guests can complete spare chairs unless reservationsLocked is ON
   const selectedExisting = selectedTable
     ? assignments[selectedTable.tableId]
     : undefined;
 
-  let canEditSelectedTable = true;
-  let modalLockReason: string | null = null;
+  const canAddBooking = isAdminUnlocked || !reservationsLocked;
+  const canEditExisting = isAdminUnlocked || !editRequiresAdmin;
 
-  if (selectedTable && !isAdminUnlocked) {
-    if (selectedExisting && editRequiresAdmin) {
-      canEditSelectedTable = false;
-      modalLockReason =
-        'Esta mesa ya está reservada y protegida. Desbloquea el Panel de Control con contraseña para editar o quitar la reserva.';
-    } else if (!selectedExisting && reservationsLocked) {
-      canEditSelectedTable = false;
-      modalLockReason =
-        'Las reservas nuevas están cerradas temporalmente por la organización. Solo el Panel de Control puede asignar mesas.';
-    }
-  }
+  const addLockReason = !canAddBooking
+    ? 'Las reservas nuevas están cerradas temporalmente por la organización. Solo el Panel de Control puede asignar o completar mesas.'
+    : null;
+  const editLockReason = !canEditExisting
+    ? 'Las reservas ya existentes están protegidas. Desbloquea el Panel de Control con contraseña para editar o quitar reservas previas.'
+    : null;
 
   const canResetAll = !editRequiresAdmin || isAdminUnlocked;
 
   return (
-    <div className="relative min-h-screen bg-[#12100C] text-[#1F2421] flex flex-col">
+    <div className="relative min-h-screen bg-[#12100C] print:bg-white text-[#1F2421] flex flex-col">
       {/* Prominent high-contrast ceremonial wallpaper behind ivory floor plan panels */}
       <div
         aria-hidden="true"
@@ -146,7 +143,7 @@ export default function App() {
         onPrint={handlePrint}
       />
 
-      <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+      <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 print:max-w-none print:p-0 print:m-0">
         {/* Admin unlocked session strip when viewing other tabs */}
         {isAdminUnlocked && activeView !== 'control' && (
           <div className="mb-4 bg-[#0A0B0A]/85 backdrop-blur-sm border border-[#D4B45E]/60 rounded-xl px-4 py-2.5 text-xs text-[#F3EFE6] flex flex-wrap items-center justify-between gap-3 no-print">
@@ -174,7 +171,7 @@ export default function App() {
 
         {/* Official event notice configured in Control Panel */}
         {eventNotice && activeView !== 'control' && (
-          <div className="mb-4 bg-[#0A0B0A]/82 backdrop-blur-sm border border-[#D4B45E]/60 rounded-xl px-4 py-3 text-xs sm:text-sm text-[#FBF9F5] flex flex-wrap items-center justify-between gap-2 shadow-md">
+          <div className="mb-4 bg-[#0A0B0A]/82 backdrop-blur-sm border border-[#D4B45E]/60 rounded-xl px-4 py-3 text-xs sm:text-sm text-[#FBF9F5] flex flex-wrap items-center justify-between gap-2 shadow-md no-print">
             <span>{eventNotice}</span>
             {reservationsLocked && (
               <span className="font-semibold text-[#F1D68A] whitespace-nowrap">
@@ -226,6 +223,7 @@ export default function App() {
                 toldoStats={toldoStats}
                 totals={totals}
                 onSelectTable={setSelectedTable}
+                onPrint={handlePrint}
                 initialFocusToldoId={pendingFocusToldoId}
                 onClearInitialFocus={() => setPendingFocusToldoId(null)}
               />
@@ -298,22 +296,48 @@ export default function App() {
       <AssignmentModal
         selection={selectedTable}
         existing={selectedExisting}
-        canEdit={canEditSelectedTable}
-        lockReason={modalLockReason}
+        canAddBooking={canAddBooking}
+        canEditExisting={canEditExisting}
+        addLockReason={addLockReason}
+        editLockReason={editLockReason}
         saving={saving}
         onClose={() => setSelectedTable(null)}
         onOpenControlPanel={() => setActiveView('control')}
-        onSave={async (data) => {
-          if (!selectedTable || !canEditSelectedTable) return;
-          await saveAssignment(
+        onAddBooking={async (booking) => {
+          if (!selectedTable || !canAddBooking) {
+            return { ok: false, error: 'Las reservas están bloqueadas.' };
+          }
+          return await addBookingToTable(
             selectedTable.tableId,
-            data,
+            booking,
             `${selectedTable.toldoName} · Mesa ${selectedTable.tableNumber}`
           );
-          setSelectedTable(null);
         }}
-        onFree={async () => {
-          if (!selectedTable || !canEditSelectedTable) return;
+        onUpdateBooking={async (index, booking) => {
+          if (!selectedTable || !canEditExisting) {
+            return { ok: false, error: 'Requiere desbloquear Panel de Control.' };
+          }
+          return await updateBookingAtIndex(
+            selectedTable.tableId,
+            index,
+            booking,
+            `${selectedTable.toldoName} · Mesa ${selectedTable.tableNumber}`
+          );
+        }}
+        onRemoveBooking={async (index) => {
+          if (!selectedTable || !canEditExisting) return;
+          const prevCount = selectedExisting?.reservations.length ?? 1;
+          await removeBookingAtIndex(
+            selectedTable.tableId,
+            index,
+            `${selectedTable.toldoName} · Mesa ${selectedTable.tableNumber}`
+          );
+          if (prevCount <= 1) {
+            setSelectedTable(null);
+          }
+        }}
+        onFreeAll={async () => {
+          if (!selectedTable || !canEditExisting) return;
           await freeTable(
             selectedTable.tableId,
             `${selectedTable.toldoName} · Mesa ${selectedTable.tableNumber}`

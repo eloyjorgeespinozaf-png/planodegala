@@ -23,6 +23,7 @@ import {
   TableSelection,
   buildTableId,
   formatRemainingSeats,
+  formatSharedOccupantsSummary,
   getRemainingSeats,
 } from '../types/seating';
 import { ToldoStats } from '../hooks/useSeatingStore';
@@ -193,7 +194,7 @@ export function ControlPanelView({
           toldoId: toldo.id,
           toldoName: toldo.name,
           tableNumber: i,
-          guestName: entry.guestName,
+          guestName: formatSharedOccupantsSummary(entry),
           guestsCount: entry.guestsCount,
           remaining: getRemainingSeats(entry.guestsCount),
           tag: entry.tag,
@@ -876,8 +877,9 @@ export function ControlPanelView({
                   Proteger mesas reservadas con contraseña
                 </span>
                 <span className="block text-xs text-[#5C635E] mt-0.5">
-                  Los invitados pueden elegir mesas libres, pero solo el
-                  administrador puede editar o quitar reservas ya hechas.
+                  Los invitados pueden reservar mesas libres o sumar su familia
+                  en sillas sobrantes, pero solo el administrador puede editar o
+                  quitar reservas ya hechas.
                 </span>
               </div>
               <input

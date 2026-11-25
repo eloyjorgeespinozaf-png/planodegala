@@ -6,6 +6,7 @@ import {
   doc,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
@@ -21,21 +22,27 @@ import {
 import {
   AssignmentsMap,
   DEFAULT_SEATS_PER_TABLE,
+  MAX_COMBINED_GUEST_NAME_LENGTH,
   MAX_GUEST_NAME_LENGTH,
   MAX_NOTES_LENGTH,
   MAX_SEATS_PER_TABLE,
   MIN_SEATS_PER_TABLE,
   SEATING_TOLDOS,
+  SEATS_PER_TABLE,
   TOTAL_CAPACITY,
   TOTAL_TABLES,
   TableAssignment,
+  TableBooking,
   TableTag,
   VALID_TABLE_ID_REGEX,
   VALID_TOLDO_IDS,
   buildTableId,
   formatRemainingSeats,
   getRemainingSeats,
+  getTableBookings,
+  hasVipOrHonorBooking,
   parseTableId,
+  summarizeBookings,
 } from '../types/seating';
 
 const LEGACY_STORAGE_KEY = 'plano_gala_mesas_v1';
@@ -69,6 +76,86 @@ interface UndoEntry {
   guestsCount: number;
   tag: TableTag;
   notes: string;
+  reservations: TableBooking[];
+}
+
+function sanitizeBooking(raw: unknown): TableBooking | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Partial<TableBooking>;
+  const guestName =
+    typeof obj.guestName === 'string'
+      ? obj.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH)
+      : '';
+  if (!guestName) return null;
+  const rawCount = Number(obj.guestsCount);
+  const guestsCount = Number.isFinite(rawCount)
+    ? Math.min(
+        MAX_SEATS_PER_TABLE,
+        Math.max(MIN_SEATS_PER_TABLE, Math.round(rawCount))
+      )
+    : DEFAULT_SEATS_PER_TABLE;
+  const tag: TableTag =
+    typeof obj.tag === 'string' && VALID_TAGS.includes(obj.tag as TableTag)
+      ? (obj.tag as TableTag)
+      : 'estandar';
+  const notes =
+    typeof obj.notes === 'string'
+      ? obj.notes.trim().slice(0, MAX_NOTES_LENGTH)
+      : '';
+
+  return { guestName, guestsCount, tag, notes };
+}
+
+function parseDocToAssignment(data: Record<string, unknown>): TableAssignment | null {
+  let bookings: TableBooking[] = [];
+
+  if (Array.isArray(data.reservations) && data.reservations.length > 0) {
+    let runningSeats = 0;
+    for (const item of data.reservations) {
+      const clean = sanitizeBooking(item);
+      if (!clean) continue;
+      if (runningSeats + clean.guestsCount > MAX_SEATS_PER_TABLE) continue;
+      bookings.push(clean);
+      runningSeats += clean.guestsCount;
+      if (bookings.length >= MAX_SEATS_PER_TABLE) break;
+    }
+  }
+
+  if (bookings.length === 0) {
+    const guestName =
+      typeof data.guestName === 'string'
+        ? data.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH)
+        : '';
+    if (!guestName) return null;
+    const rawCount = Number(data.guestsCount);
+    const guestsCount = Number.isFinite(rawCount)
+      ? Math.min(
+          MAX_SEATS_PER_TABLE,
+          Math.max(MIN_SEATS_PER_TABLE, Math.round(rawCount))
+        )
+      : DEFAULT_SEATS_PER_TABLE;
+    const tag: TableTag =
+      typeof data.tag === 'string' && VALID_TAGS.includes(data.tag as TableTag)
+        ? (data.tag as TableTag)
+        : 'estandar';
+    const notes =
+      typeof data.notes === 'string'
+        ? data.notes.trim().slice(0, MAX_NOTES_LENGTH)
+        : '';
+    bookings = [{ guestName, guestsCount, tag, notes }];
+  }
+
+  const summary = summarizeBookings(bookings);
+  if (!summary.guestName || summary.guestsCount < 1) return null;
+
+  return {
+    guestName: summary.guestName,
+    guestsCount: summary.guestsCount,
+    tag: summary.tag,
+    notes: summary.notes,
+    reservations: summary.reservations,
+    updatedAt: toMillis(data.updatedAt),
+  };
 }
 
 function sanitizeLegacyLocalMap(raw: unknown): AssignmentsMap {
@@ -79,46 +166,25 @@ function sanitizeLegacyLocalMap(raw: unknown): AssignmentsMap {
     if (!VALID_TABLE_ID_REGEX.test(key)) continue;
 
     if (typeof value === 'string' && value.trim()) {
-      result[key] = {
+      const booking: TableBooking = {
         guestName: value.trim().slice(0, MAX_GUEST_NAME_LENGTH),
         guestsCount: DEFAULT_SEATS_PER_TABLE,
         tag: 'estandar',
         notes: '',
+      };
+      result[key] = {
+        ...booking,
+        reservations: [booking],
         updatedAt: Date.now(),
       };
       continue;
     }
 
     if (value && typeof value === 'object') {
-      const obj = value as Partial<TableAssignment>;
-      const name =
-        typeof obj.guestName === 'string'
-          ? obj.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH)
-          : '';
-      if (!name) continue;
-      const rawCount = Number(obj.guestsCount);
-      const guestsCount = Number.isFinite(rawCount)
-        ? Math.min(
-            MAX_SEATS_PER_TABLE,
-            Math.max(MIN_SEATS_PER_TABLE, Math.round(rawCount))
-          )
-        : DEFAULT_SEATS_PER_TABLE;
-      const tag: TableTag =
-        typeof obj.tag === 'string' && VALID_TAGS.includes(obj.tag as TableTag)
-          ? (obj.tag as TableTag)
-          : 'estandar';
-      const notes =
-        typeof obj.notes === 'string'
-          ? obj.notes.trim().slice(0, MAX_NOTES_LENGTH)
-          : '';
-
-      result[key] = {
-        guestName: name,
-        guestsCount,
-        tag,
-        notes,
-        updatedAt: Date.now(),
-      };
+      const parsed = parseDocToAssignment(value as Record<string, unknown>);
+      if (parsed) {
+        result[key] = parsed;
+      }
     }
   }
 
@@ -202,33 +268,13 @@ export function useSeatingStore() {
       (snapshot) => {
         const nextMap: AssignmentsMap = {};
         snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
           const id = docSnap.id;
           if (!VALID_TABLE_ID_REGEX.test(id)) return;
-          const guestName =
-            typeof data.guestName === 'string' ? data.guestName.trim() : '';
-          if (!guestName) return;
-
-          const rawCount = Number(data.guestsCount);
-          const guestsCount = Number.isFinite(rawCount)
-            ? Math.min(
-                MAX_SEATS_PER_TABLE,
-                Math.max(MIN_SEATS_PER_TABLE, Math.round(rawCount))
-              )
-            : DEFAULT_SEATS_PER_TABLE;
-          const tag: TableTag =
-            typeof data.tag === 'string' &&
-            VALID_TAGS.includes(data.tag as TableTag)
-              ? (data.tag as TableTag)
-              : 'estandar';
-
-          nextMap[id] = {
-            guestName,
-            guestsCount,
-            tag,
-            notes: typeof data.notes === 'string' ? data.notes : '',
-            updatedAt: toMillis(data.updatedAt),
-          };
+          const parsed = parseDocToAssignment(
+            docSnap.data() as Record<string, unknown>
+          );
+          if (!parsed) return;
+          nextMap[id] = parsed;
         });
 
         setAssignments(nextMap);
@@ -251,18 +297,19 @@ export function useSeatingStore() {
     return () => unsubscribe();
   }, []);
 
-  const saveAssignment = useCallback(
+  /**
+   * Reserves a free table OR atomically appends another family/person to an already
+   * reserved table so its 10 seats can be completed without race conditions.
+   */
+  const addBookingToTable = useCallback(
     async (
       tableId: string,
-      data: {
-        guestName: string;
-        guestsCount: number;
-        tag: TableTag;
-        notes: string;
-      },
+      booking: TableBooking,
       label: string
-    ) => {
-      if (!VALID_TABLE_ID_REGEX.test(tableId)) return;
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!VALID_TABLE_ID_REGEX.test(tableId)) {
+        return { ok: false, error: 'Mesa inválida.' };
+      }
 
       const parsed = parseTableId(tableId);
       if (
@@ -271,64 +318,113 @@ export function useSeatingStore() {
         parsed.tableNumber < 1 ||
         parsed.tableNumber > 15
       ) {
-        return;
+        return { ok: false, error: 'Ubicación inválida.' };
       }
 
-      const cleanName = data.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH);
-      if (!cleanName) return;
-
-      const clampedCount = Math.min(
-        MAX_SEATS_PER_TABLE,
-        Math.max(MIN_SEATS_PER_TABLE, Math.round(data.guestsCount))
-      );
-      const safeTag: TableTag = VALID_TAGS.includes(data.tag)
-        ? data.tag
-        : 'estandar';
-      const cleanNotes = data.notes.trim().slice(0, MAX_NOTES_LENGTH);
+      const cleanBooking = sanitizeBooking(booking);
+      if (!cleanBooking) {
+        return { ok: false, error: 'Ingresa un nombre válido.' };
+      }
 
       const docPath = `${COLLECTION_NAME}/${tableId}`;
       const docRef = doc(db, COLLECTION_NAME, tableId);
-      const alreadyExists = Boolean(assignments[tableId]);
 
       setSaving(true);
       try {
-        if (alreadyExists) {
-          await updateDoc(docRef, {
-            guestName: cleanName,
-            guestsCount: clampedCount,
-            tag: safeTag,
-            notes: cleanNotes,
-            updatedAt: serverTimestamp(),
-          });
-        } else {
-          await setDoc(docRef, {
-            tableId,
-            toldoId: parsed.toldoId,
-            tableNumber: parsed.tableNumber,
-            guestName: cleanName,
-            guestsCount: clampedCount,
-            tag: safeTag,
-            notes: cleanNotes,
-            visibility: 'shared',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        }
+        let finalTotalSeats = cleanBooking.guestsCount;
+        let wasSharedAddition = false;
 
-        const remaining = getRemainingSeats(clampedCount);
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(docRef);
+          if (!snap.exists()) {
+            const summary = summarizeBookings([cleanBooking]);
+            finalTotalSeats = summary.guestsCount;
+            tx.set(docRef, {
+              tableId,
+              toldoId: parsed.toldoId,
+              tableNumber: parsed.tableNumber,
+              guestName: summary.guestName,
+              guestsCount: summary.guestsCount,
+              tag: summary.tag,
+              notes: summary.notes,
+              reservations: summary.reservations,
+              visibility: 'shared',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            return;
+          }
+
+          wasSharedAddition = true;
+          const liveAssignment = parseDocToAssignment(
+            snap.data() as Record<string, unknown>
+          );
+          const currentBookings = liveAssignment
+            ? getTableBookings(liveAssignment)
+            : [];
+          const currentTotal = currentBookings.reduce(
+            (sum, b) => sum + b.guestsCount,
+            0
+          );
+          const available = SEATS_PER_TABLE - currentTotal;
+
+          if (available <= 0) {
+            throw new Error('TABLE_FULL');
+          }
+          if (cleanBooking.guestsCount > available) {
+            throw new Error(`NOT_ENOUGH_SEATS:${available}`);
+          }
+
+          const nextBookings = [...currentBookings, cleanBooking];
+          const summary = summarizeBookings(nextBookings);
+          finalTotalSeats = summary.guestsCount;
+
+          tx.update(docRef, {
+            guestName: summary.guestName,
+            guestsCount: summary.guestsCount,
+            tag: summary.tag,
+            notes: summary.notes,
+            reservations: summary.reservations,
+            updatedAt: serverTimestamp(),
+          });
+        });
+
+        const remaining = getRemainingSeats(finalTotalSeats);
         undoEntriesRef.current = null;
         showToast(
-          `${label} guardada para ${cleanName} (${clampedCount}/10 · ${formatRemainingSeats(
-            remaining
-          ).toLowerCase()})`
+          wasSharedAddition
+            ? remaining === 0
+              ? `${cleanBooking.guestName} completó ${label} (10/10 sillas)`
+              : `${cleanBooking.guestName} (+${cleanBooking.guestsCount}) sumado a ${label} (${finalTotalSeats}/10 · ${formatRemainingSeats(
+                  remaining
+                ).toLowerCase()})`
+            : `${label} reservada para ${cleanBooking.guestName} (${finalTotalSeats}/10 · ${formatRemainingSeats(
+                remaining
+              ).toLowerCase()})`
         );
+        return { ok: true };
       } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'TABLE_FULL') {
+            return {
+              ok: false,
+              error: 'Esta mesa ya fue completada (10/10 sillas).',
+            };
+          }
+          if (error.message.startsWith('NOT_ENOUGH_SEATS:')) {
+            const avail = Number(error.message.split(':')[1] ?? '0');
+            return {
+              ok: false,
+              error:
+                avail === 1
+                  ? 'Solo queda 1 silla disponible en esta mesa.'
+                  : `Solo quedan ${avail} sillas disponibles en esta mesa.`,
+            };
+          }
+        }
+
         try {
-          handleFirestoreError(
-            error,
-            alreadyExists ? OperationType.UPDATE : OperationType.CREATE,
-            docPath
-          );
+          handleFirestoreError(error, OperationType.WRITE, docPath);
         } catch (wrappedError) {
           const msg =
             wrappedError instanceof Error
@@ -342,6 +438,179 @@ export function useSeatingStore() {
             showToast(
               'No se pudo guardar la reserva. Verifica los datos e intenta de nuevo.'
             );
+          }
+        }
+        return {
+          ok: false,
+          error: 'No se pudo guardar la reserva en Firestore.',
+        };
+      } finally {
+        setSaving(false);
+      }
+    },
+    [showToast]
+  );
+
+  /**
+   * Updates one specific family/guest reservation inside a table (single or shared).
+   */
+  const updateBookingAtIndex = useCallback(
+    async (
+      tableId: string,
+      bookingIndex: number,
+      updatedBooking: TableBooking,
+      label: string
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (!VALID_TABLE_ID_REGEX.test(tableId)) {
+        return { ok: false, error: 'Mesa inválida.' };
+      }
+      const existing = assignments[tableId];
+      if (!existing) return { ok: false, error: 'La mesa no está reservada.' };
+
+      const currentBookings = getTableBookings(existing);
+      if (bookingIndex < 0 || bookingIndex >= currentBookings.length) {
+        return { ok: false, error: 'Reserva no encontrada.' };
+      }
+
+      const clean = sanitizeBooking(updatedBooking);
+      if (!clean) {
+        return { ok: false, error: 'Ingresa un nombre válido.' };
+      }
+
+      const otherSeats = currentBookings.reduce(
+        (sum, b, idx) => (idx === bookingIndex ? sum : sum + b.guestsCount),
+        0
+      );
+      if (otherSeats + clean.guestsCount > SEATS_PER_TABLE) {
+        const maxAllowed = SEATS_PER_TABLE - otherSeats;
+        return {
+          ok: false,
+          error: `Máximo ${maxAllowed} ${
+            maxAllowed === 1 ? 'silla disponible' : 'sillas disponibles'
+          } para esta reserva.`,
+        };
+      }
+
+      const nextBookings = currentBookings.map((b, idx) =>
+        idx === bookingIndex ? clean : b
+      );
+      const summary = summarizeBookings(nextBookings);
+      const docPath = `${COLLECTION_NAME}/${tableId}`;
+
+      setSaving(true);
+      try {
+        await updateDoc(doc(db, COLLECTION_NAME, tableId), {
+          guestName: summary.guestName,
+          guestsCount: summary.guestsCount,
+          tag: summary.tag,
+          notes: summary.notes,
+          reservations: summary.reservations,
+          updatedAt: serverTimestamp(),
+        });
+
+        const remaining = getRemainingSeats(summary.guestsCount);
+        undoEntriesRef.current = null;
+        showToast(
+          `${label} actualizada (${summary.guestsCount}/10 · ${formatRemainingSeats(
+            remaining
+          ).toLowerCase()})`
+        );
+        return { ok: true };
+      } catch (error) {
+        try {
+          handleFirestoreError(error, OperationType.UPDATE, docPath);
+        } catch (wrappedError) {
+          const msg =
+            wrappedError instanceof Error
+              ? wrappedError.message
+              : String(wrappedError);
+          if (isQuotaExceededError(msg)) {
+            setSyncError(
+              wrappedError instanceof Error ? wrappedError : new Error(msg)
+            );
+          } else {
+            showToast('No se pudo actualizar la reserva.');
+          }
+        }
+        return { ok: false, error: 'No se pudo actualizar la reserva.' };
+      } finally {
+        setSaving(false);
+      }
+    },
+    [assignments, showToast]
+  );
+
+  /**
+   * Removes a single family/guest from a shared table (or frees the table if last).
+   */
+  const removeBookingAtIndex = useCallback(
+    async (tableId: string, bookingIndex: number, label: string) => {
+      const prev = assignments[tableId];
+      if (!prev) return;
+      const parsed = parseTableId(tableId);
+      if (!parsed) return;
+
+      const currentBookings = getTableBookings(prev);
+      if (bookingIndex < 0 || bookingIndex >= currentBookings.length) return;
+
+      const removed = currentBookings[bookingIndex];
+      const remainingBookings = currentBookings.filter(
+        (_, idx) => idx !== bookingIndex
+      );
+
+      const docPath = `${COLLECTION_NAME}/${tableId}`;
+      setSaving(true);
+      try {
+        if (remainingBookings.length === 0) {
+          await deleteDoc(doc(db, COLLECTION_NAME, tableId));
+          undoEntriesRef.current = [
+            {
+              tableId,
+              toldoId: parsed.toldoId,
+              tableNumber: parsed.tableNumber,
+              guestName: prev.guestName,
+              guestsCount: prev.guestsCount,
+              tag: prev.tag,
+              notes: prev.notes,
+              reservations: currentBookings,
+            },
+          ];
+          showToast(`${label} liberada`, true);
+        } else {
+          const summary = summarizeBookings(remainingBookings);
+          await updateDoc(doc(db, COLLECTION_NAME, tableId), {
+            guestName: summary.guestName,
+            guestsCount: summary.guestsCount,
+            tag: summary.tag,
+            notes: summary.notes,
+            reservations: summary.reservations,
+            updatedAt: serverTimestamp(),
+          });
+          undoEntriesRef.current = null;
+          showToast(
+            `Se quitó a ${removed.guestName} de ${label} (${summary.guestsCount}/10 sillas ocupadas)`
+          );
+        }
+      } catch (error) {
+        try {
+          handleFirestoreError(
+            error,
+            remainingBookings.length === 0
+              ? OperationType.DELETE
+              : OperationType.UPDATE,
+            docPath
+          );
+        } catch (wrappedError) {
+          const msg =
+            wrappedError instanceof Error
+              ? wrappedError.message
+              : String(wrappedError);
+          if (isQuotaExceededError(msg)) {
+            setSyncError(
+              wrappedError instanceof Error ? wrappedError : new Error(msg)
+            );
+          } else {
+            showToast('No se pudo quitar esta reserva. Intenta de nuevo.');
           }
         }
       } finally {
@@ -371,6 +640,7 @@ export function useSeatingStore() {
             guestsCount: prev.guestsCount,
             tag: prev.tag,
             notes: prev.notes,
+            reservations: getTableBookings(prev),
           },
         ];
         showToast(`${label} liberada`, true);
@@ -418,6 +688,7 @@ export function useSeatingStore() {
           guestsCount: entry.guestsCount,
           tag: entry.tag,
           notes: entry.notes,
+          reservations: getTableBookings(entry),
         });
       }
 
@@ -449,17 +720,16 @@ export function useSeatingStore() {
       const batch = writeBatch(db);
       for (const item of entriesToRestore) {
         if (assignments[item.tableId]) continue;
+        const summary = summarizeBookings(item.reservations);
         batch.set(doc(db, COLLECTION_NAME, item.tableId), {
           tableId: item.tableId,
           toldoId: item.toldoId,
           tableNumber: item.tableNumber,
-          guestName: item.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
-          guestsCount: Math.min(
-            MAX_SEATS_PER_TABLE,
-            Math.max(MIN_SEATS_PER_TABLE, Math.round(item.guestsCount))
-          ),
-          tag: item.tag,
-          notes: item.notes.slice(0, MAX_NOTES_LENGTH),
+          guestName: summary.guestName.slice(0, MAX_COMBINED_GUEST_NAME_LENGTH),
+          guestsCount: summary.guestsCount,
+          tag: summary.tag,
+          notes: summary.notes.slice(0, MAX_NOTES_LENGTH),
+          reservations: summary.reservations,
           visibility: 'shared',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -500,17 +770,16 @@ export function useSeatingStore() {
       for (const [tableId, entry] of importableLocalEntries) {
         const parsed = parseTableId(tableId);
         if (!parsed || !VALID_TOLDO_IDS.has(parsed.toldoId)) continue;
+        const summary = summarizeBookings(getTableBookings(entry));
         batch.set(doc(db, COLLECTION_NAME, tableId), {
           tableId,
           toldoId: parsed.toldoId,
           tableNumber: parsed.tableNumber,
-          guestName: entry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
-          guestsCount: Math.min(
-            MAX_SEATS_PER_TABLE,
-            Math.max(MIN_SEATS_PER_TABLE, Math.round(entry.guestsCount))
-          ),
-          tag: entry.tag,
-          notes: entry.notes.slice(0, MAX_NOTES_LENGTH),
+          guestName: summary.guestName,
+          guestsCount: summary.guestsCount,
+          tag: summary.tag,
+          notes: summary.notes,
+          reservations: summary.reservations,
           visibility: 'shared',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -573,46 +842,42 @@ export function useSeatingStore() {
       const targetEntry = assignments[targetTableId];
       const sourceRef = doc(db, COLLECTION_NAME, sourceTableId);
       const targetRef = doc(db, COLLECTION_NAME, targetTableId);
+      const sourceSummary = summarizeBookings(getTableBookings(sourceEntry));
 
       setSaving(true);
       try {
         const batch = writeBatch(db);
         if (targetEntry) {
-          // Atomic swap between two occupied tables
+          const targetSummary = summarizeBookings(getTableBookings(targetEntry));
+          // Atomic swap between two occupied tables (preserving all co-reservations)
           batch.update(sourceRef, {
-            guestName: targetEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
-            guestsCount: Math.min(
-              MAX_SEATS_PER_TABLE,
-              Math.max(MIN_SEATS_PER_TABLE, Math.round(targetEntry.guestsCount))
-            ),
-            tag: targetEntry.tag,
-            notes: targetEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            guestName: targetSummary.guestName,
+            guestsCount: targetSummary.guestsCount,
+            tag: targetSummary.tag,
+            notes: targetSummary.notes,
+            reservations: targetSummary.reservations,
             updatedAt: serverTimestamp(),
           });
           batch.update(targetRef, {
-            guestName: sourceEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
-            guestsCount: Math.min(
-              MAX_SEATS_PER_TABLE,
-              Math.max(MIN_SEATS_PER_TABLE, Math.round(sourceEntry.guestsCount))
-            ),
-            tag: sourceEntry.tag,
-            notes: sourceEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            guestName: sourceSummary.guestName,
+            guestsCount: sourceSummary.guestsCount,
+            tag: sourceSummary.tag,
+            notes: sourceSummary.notes,
+            reservations: sourceSummary.reservations,
             updatedAt: serverTimestamp(),
           });
         } else {
-          // Move reservation to a free table
+          // Move reservation (including all co-reservations) to a free table
           batch.delete(sourceRef);
           batch.set(targetRef, {
             tableId: targetTableId,
             toldoId: targetParsed.toldoId,
             tableNumber: targetParsed.tableNumber,
-            guestName: sourceEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
-            guestsCount: Math.min(
-              MAX_SEATS_PER_TABLE,
-              Math.max(MIN_SEATS_PER_TABLE, Math.round(sourceEntry.guestsCount))
-            ),
-            tag: sourceEntry.tag,
-            notes: sourceEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            guestName: sourceSummary.guestName,
+            guestsCount: sourceSummary.guestsCount,
+            tag: sourceSummary.tag,
+            notes: sourceSummary.notes,
+            reservations: sourceSummary.reservations,
             visibility: 'shared',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
@@ -678,6 +943,7 @@ export function useSeatingStore() {
             guestsCount: entry.guestsCount,
             tag: entry.tag,
             notes: entry.notes,
+            reservations: getTableBookings(entry),
           });
         }
 
@@ -734,12 +1000,14 @@ export function useSeatingStore() {
           const parsed = parseTableId(tableId);
           if (!parsed || !VALID_TOLDO_IDS.has(parsed.toldoId)) continue;
           const docRef = doc(db, COLLECTION_NAME, tableId);
+          const summary = summarizeBookings(getTableBookings(entry));
           if (assignments[tableId]) {
             batch.update(docRef, {
-              guestName: entry.guestName,
-              guestsCount: entry.guestsCount,
-              tag: entry.tag,
-              notes: entry.notes,
+              guestName: summary.guestName,
+              guestsCount: summary.guestsCount,
+              tag: summary.tag,
+              notes: summary.notes,
+              reservations: summary.reservations,
               updatedAt: serverTimestamp(),
             });
           } else {
@@ -747,10 +1015,11 @@ export function useSeatingStore() {
               tableId,
               toldoId: parsed.toldoId,
               tableNumber: parsed.tableNumber,
-              guestName: entry.guestName,
-              guestsCount: entry.guestsCount,
-              tag: entry.tag,
-              notes: entry.notes,
+              guestName: summary.guestName,
+              guestsCount: summary.guestsCount,
+              tag: summary.tag,
+              notes: summary.notes,
+              reservations: summary.reservations,
               visibility: 'shared',
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
@@ -807,7 +1076,7 @@ export function useSeatingStore() {
           occupiedTables += 1;
           assignedGuests += entry.guestsCount;
           spareSeatsInReserved += getRemainingSeats(entry.guestsCount);
-          if (entry.tag === 'vip' || entry.tag === 'honor') {
+          if (hasVipOrHonorBooking(entry)) {
             vipTables += 1;
           }
         }
@@ -865,7 +1134,9 @@ export function useSeatingStore() {
     importableLocalCount: importableLocalEntries.length,
     showToast,
     dismissToast,
-    saveAssignment,
+    addBookingToTable,
+    updateBookingAtIndex,
+    removeBookingAtIndex,
     freeTable,
     clearAllAssignments,
     clearToldoAssignments,

@@ -33,6 +33,57 @@ service cloud.firestore {
       return tag is string && tag.size() <= 16 && tag in ['estandar', 'vip', 'familia', 'honor'];
     }
 
+    // Validates a single family/guest entry inside a shared table's reservations list
+    function isValidBookingEntry(entry) {
+      return entry is map
+        && entry.keys().hasAll(['guestName', 'guestsCount', 'tag', 'notes'])
+        && entry.keys().hasOnly(['guestName', 'guestsCount', 'tag', 'notes'])
+        && entry.guestName is string
+        && entry.guestName.size() >= 1
+        && entry.guestName.size() <= 120
+        && entry.guestsCount is int
+        && entry.guestsCount >= 1
+        && entry.guestsCount <= 10
+        && isValidTableTag(entry.tag)
+        && entry.notes is string
+        && entry.notes.size() <= 240;
+    }
+
+    function bookingSeatsAt(bookings, idx) {
+      return bookings.size() > idx ? bookings[idx].guestsCount : 0;
+    }
+
+    function sumBookingSeats(bookings) {
+      return bookingSeatsAt(bookings, 0)
+        + bookingSeatsAt(bookings, 1)
+        + bookingSeatsAt(bookings, 2)
+        + bookingSeatsAt(bookings, 3)
+        + bookingSeatsAt(bookings, 4)
+        + bookingSeatsAt(bookings, 5)
+        + bookingSeatsAt(bookings, 6)
+        + bookingSeatsAt(bookings, 7)
+        + bookingSeatsAt(bookings, 8)
+        + bookingSeatsAt(bookings, 9);
+    }
+
+    // Total Array Guarding across all 1..10 possible slots + exact 10-seat sum check
+    function isValidReservationsList(bookings, expectedTotalSeats) {
+      return bookings is list
+        && bookings.size() >= 1
+        && bookings.size() <= 10
+        && isValidBookingEntry(bookings[0])
+        && (bookings.size() < 2 || isValidBookingEntry(bookings[1]))
+        && (bookings.size() < 3 || isValidBookingEntry(bookings[2]))
+        && (bookings.size() < 4 || isValidBookingEntry(bookings[3]))
+        && (bookings.size() < 5 || isValidBookingEntry(bookings[4]))
+        && (bookings.size() < 6 || isValidBookingEntry(bookings[5]))
+        && (bookings.size() < 7 || isValidBookingEntry(bookings[6]))
+        && (bookings.size() < 8 || isValidBookingEntry(bookings[7]))
+        && (bookings.size() < 9 || isValidBookingEntry(bookings[8]))
+        && (bookings.size() < 10 || isValidBookingEntry(bookings[9]))
+        && sumBookingSeats(bookings) == expectedTotalSeats;
+    }
+
     // -------------------------------------------------------------------------
     // Entity Validation Blueprints (Anti-Update-Gap + Cross-Field Integrity)
     // -------------------------------------------------------------------------
@@ -57,6 +108,7 @@ service cloud.firestore {
           'guestsCount',
           'tag',
           'notes',
+          'reservations',
           'visibility',
           'createdAt',
           'updatedAt'
@@ -70,13 +122,14 @@ service cloud.firestore {
         && tableId == ('toldo-' + string(data.toldoId) + '-mesa-' + string(data.tableNumber))
         && data.guestName is string
         && data.guestName.size() >= 1
-        && data.guestName.size() <= 120
+        && data.guestName.size() <= 200
         && data.guestsCount is int
         && data.guestsCount >= 1
         && data.guestsCount <= 10
         && isValidTableTag(data.tag)
         && data.notes is string
         && data.notes.size() <= 240
+        && (!('reservations' in data) || isValidReservationsList(data.reservations, data.guestsCount))
         && data.visibility is string
         && data.visibility == 'shared'
         && data.createdAt is timestamp
@@ -140,6 +193,7 @@ service cloud.firestore {
           'guestsCount',
           'tag',
           'notes',
+          'reservations',
           'updatedAt'
         ]);
 
