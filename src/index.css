@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-canvas: #fbf9f5;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f3efe6;
+  --color-border-subtle: #e4dcce;
+  --color-ink: #1f2421;
+  --color-ink-muted: #5c635e;
+  --color-gold: #b59449;
+  --color-gold-soft: #c9a959;
+  --color-emerald-gala: #0f6b4e;
+  --color-emerald-gala-hover: #0b533c;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    scroll-behavior: smooth;
+  }
+
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Inlaid wood floor pattern for Toldo 4 dance floor */
+.gala-wood-floor {
+  background-color: #6f4e32;
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 245, 225, 0.06) 0px,
+      rgba(255, 245, 225, 0.06) 12px,
+      rgba(24, 14, 6, 0.14) 12px,
+      rgba(24, 14, 6, 0.14) 24px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(201, 169, 89, 0.08) 0px,
+      rgba(201, 169, 89, 0.08) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+    size: landscape;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #1f2421 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

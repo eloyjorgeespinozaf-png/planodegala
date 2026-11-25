@@ -1,0 +1,126 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Hardened Global Primitives
+    // -------------------------------------------------------------------------
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTableId(tableId) {
+      return tableId is string
+        && tableId.size() >= 14
+        && tableId.size() <= 32
+        && tableId.matches('^toldo-(1|2|3|5|6|7|8)-mesa-([1-9]|1[0-5])$');
+    }
+
+    function isValidToldoId(toldoId) {
+      return toldoId is int && toldoId in [1, 2, 3, 5, 6, 7, 8];
+    }
+
+    function isValidTableTag(tag) {
+      return tag is string && tag.size() <= 16 && tag in ['estandar', 'vip', 'familia', 'honor'];
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprint (Anti-Update-Gap + Cross-Field Integrity)
+    // -------------------------------------------------------------------------
+    function isValidTableReservation(data, tableId) {
+      return data.keys().hasAll([
+          'tableId',
+          'toldoId',
+          'tableNumber',
+          'guestName',
+          'guestsCount',
+          'tag',
+          'notes',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'tableId',
+          'toldoId',
+          'tableNumber',
+          'guestName',
+          'guestsCount',
+          'tag',
+          'notes',
+          'visibility',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.tableId is string
+        && data.tableId == tableId
+        && isValidToldoId(data.toldoId)
+        && data.tableNumber is int
+        && data.tableNumber >= 1
+        && data.tableNumber <= 15
+        && tableId == ('toldo-' + string(data.toldoId) + '-mesa-' + string(data.tableNumber))
+        && data.guestName is string
+        && data.guestName.size() >= 1
+        && data.guestName.size() <= 120
+        && data.guestsCount is int
+        && data.guestsCount >= 1
+        && data.guestsCount <= 10
+        && isValidTableTag(data.tag)
+        && data.notes is string
+        && data.notes.size() <= 240
+        && data.visibility is string
+        && data.visibility == 'shared'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection: /tableReservations/{tableId}
+    // Direct shared collaborative seating plan (zero PII, strict schema gates)
+    // -------------------------------------------------------------------------
+    match /tableReservations/{tableId} {
+      // Single-document read enforces path variable hardening & shared scope
+      allow get: if isValidTableId(tableId)
+        && (resource == null || existing().visibility == 'shared');
+
+      // Secure list query explicitly checks resource.data (no get()/exists() in list)
+      allow list: if existing().visibility == 'shared';
+
+      // Create: Path Hardening + Static Blueprint Validation + Server Timestamp Integrity
+      allow create: if isValidTableId(tableId)
+        && isValidTableReservation(incoming(), tableId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      // Update: Validation helper first + Action-Based affectedKeys + Immutable Fields
+      allow update: if isValidTableId(tableId)
+        && isValidTableReservation(incoming(), tableId)
+        && incoming().tableId == existing().tableId
+        && incoming().toldoId == existing().toldoId
+        && incoming().tableNumber == existing().tableNumber
+        && incoming().visibility == existing().visibility
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'guestName',
+          'guestsCount',
+          'tag',
+          'notes',
+          'updatedAt'
+        ]);
+
+      // Delete: Enforces valid table path and shared scope
+      allow delete: if isValidTableId(tableId)
+        && existing().visibility == 'shared';
+    }
+  }
+}

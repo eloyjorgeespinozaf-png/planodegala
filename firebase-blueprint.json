@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "TableReservation": {
+      "title": "TableReservation",
+      "description": "Reserva de una mesa de 10 sillas en uno de los 7 toldos habilitados del salón, con acceso directo compartido.",
+      "type": "object",
+      "properties": {
+        "tableId": {
+          "type": "string",
+          "description": "Identificador único de la mesa (coincide con el ID del documento).",
+          "minLength": 14,
+          "maxLength": 32,
+          "pattern": "^toldo-(1|2|3|5|6|7|8)-mesa-([1-9]|1[0-5])$"
+        },
+        "toldoId": {
+          "type": "integer",
+          "description": "Número del toldo de mesas (1, 2, 3, 5, 6, 7 u 8)."
+        },
+        "tableNumber": {
+          "type": "integer",
+          "description": "Número de mesa dentro del toldo (1 a 15)."
+        },
+        "guestName": {
+          "type": "string",
+          "description": "Nombre del invitado o familia asignada a la mesa.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "guestsCount": {
+          "type": "integer",
+          "description": "Cantidad de sillas ocupadas en la mesa (1 a 10)."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Categoría protocolar de la mesa.",
+          "enum": ["estandar", "vip", "familia", "honor"]
+        },
+        "notes": {
+          "type": "string",
+          "description": "Notas opcionales (dieta, silla infantil, observaciones).",
+          "minLength": 0,
+          "maxLength": 240
+        },
+        "visibility": {
+          "type": "string",
+          "description": "Ámbito compartido del plano del evento.",
+          "enum": ["shared"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal del servidor al crear la reserva."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal del servidor en la última actualización."
+        }
+      },
+      "required": [
+        "tableId",
+        "toldoId",
+        "tableNumber",
+        "guestName",
+        "guestsCount",
+        "tag",
+        "notes",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/tableReservations/{tableId}": {
+      "schema": {
+        "$ref": "#/entities/TableReservation"
+      },
+      "description": "Colección de reservas activas de mesas sincronizadas en tiempo real para acceso directo compartido al plano del salón."
+    }
+  }
+}

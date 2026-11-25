@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Distribución de Mesas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e5dfd5; /* Color de fondo similar al plano */
+        }
+        
+        .wood-pattern {
+            background-color: #8b5a2b;
+            background-image: repeating-linear-gradient(
+                45deg,
+                rgba(0, 0, 0, 0.1),
+                rgba(0, 0, 0, 0.1) 10px,
+                rgba(0, 0, 0, 0.2) 10px,
+                rgba(0, 0, 0, 0.2) 20px
+            );
+        }
+
+        .table-occupied {
+            background-color: #10b981 !important; /* Emerald 500 */
+            border-color: #047857 !important; /* Emerald 700 */
+            color: white;
+        }
+
+        /* Ocultar barra de scroll en contenedores específicos pero permitir scroll */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800 p-4 sm:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="text-center mb-8 bg-white p-6 rounded-2xl shadow-lg border-b-4 border-amber-600">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-2">Plano del Evento</h1>
+            <p class="text-gray-600">Haz clic en una mesa para asignar invitados</p>
+        </header>
+
+        <!-- Floor Plan Container -->
+        <div id="floor-plan" class="flex flex-col gap-4 bg-white p-4 sm:p-6 rounded-2xl shadow-2xl border-4 border-gray-300">
+            <!-- Los Toldos se renderizarán aquí vía JavaScript -->
+        </div>
+    </div>
+
+    <!-- Modal de Asignación -->
+    <div id="table-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+        <!-- Overlay -->
+        <div class="absolute inset-0 bg-black bg-opacity-60 transition-opacity" onclick="closeModal()"></div>
+        
+        <!-- Modal Content -->
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 transform transition-all">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="modal-title" class="text-2xl font-bold text-gray-800">Asignar Mesa</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <form id="assignment-form" onsubmit="saveTableAssignment(event)">
+                <input type="hidden" id="current-table-id">
+                
+                <div class="mb-5">
+                    <label for="guest-name" class="block text-sm font-medium text-gray-700 mb-2">Nombre del Invitado o Familia:</label>
+                    <input type="text" id="guest-name" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all" placeholder="Ej. Familia Pérez" autocomplete="off">
+                </div>
+                
+                <div class="flex gap-3 justify-end">
+                    <button type="button" onclick="freeTable()" id="btn-free" class="hidden px-4 py-2 bg-red-100 text-red-700 font-semibold rounded-lg hover:bg-red-200 transition-colors">
+                        Liberar Mesa
+                    </button>
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition-colors">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-4 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 transition-colors shadow-md">
+                        Guardar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Configuración de los toldos basada en la imagen
+        const configToldos = [
+            { id: 8, name: "TOLDO 8", type: "mesas", mesas: 15, personas: 150 },
+            { id: 3, name: "TOLDO 3", type: "mesas", mesas: 15, personas: 150 },
+            { id: 2, name: "TOLDO 2", type: "mesas", mesas: 15, personas: 150 },
+            { id: 1, name: "TOLDO 1", type: "mesas", mesas: 15, personas: 150 },
+            { id: 4, name: "PISTA DE BAILE", type: "especial", desc: "(Grupo musical)", isToldo4: true },
+            { id: 5, name: "TOLDO 5", type: "mesas", mesas: 15, personas: 150 },
+            { id: 6, name: "TOLDO 6", type: "mesas", mesas: 15, personas: 150 },
+            { id: 7, name: "TOLDO 7", type: "mesas", mesas: 15, personas: 150 }
+        ];
+
+        // Estado en memoria para guardar las asignaciones
+        // Estructura: { "toldo-8-mesa-1": "Familia Perez", ... }
+        let tableState = {};
+
+        // Inicializar la interfaz
+        function initApp() {
+            const container = document.getElementById('floor-plan');
+            container.innerHTML = ''; // Limpiar
+
+            configToldos.forEach(toldo => {
+                const toldoElement = document.createElement('div');
+                toldoElement.className = "flex flex-col md:flex-row bg-[#f9f6f0] border border-amber-200 rounded-xl overflow-hidden shadow-sm relative";
+
+                // Panel lateral de información del Toldo (Izquierda)
+                const infoPanel = document.createElement('div');
+                infoPanel.className = "md:w-48 bg-[#e8dbce] p-4 flex flex-col justify-center items-center border-b md:border-b-0 md:border-r border-amber-300 flex-shrink-0";
+                
+                if (toldo.type === "mesas") {
+                    infoPanel.innerHTML = `
+                        <div class="bg-[#a37e58] text-white font-bold py-1 px-4 rounded-full mb-2 w-full text-center shadow">
+                            ${toldo.name}
+                        </div>
+                        <div class="text-sm font-semibold text-gray-700">${toldo.mesas} mesas</div>
+                        <div class="text-xs text-gray-600">(${toldo.personas} personas)</div>
+                    `;
+                } else {
+                    infoPanel.innerHTML = `
+                        <div class="bg-[#6b4a2e] text-white font-bold py-1 px-4 rounded-full mb-2 w-full text-center shadow">
+                            ${toldo.name}
+                        </div>
+                        <div class="text-xs text-gray-700 text-center font-medium">${toldo.desc}</div>
+                    `;
+                }
+                toldoElement.appendChild(infoPanel);
+
+                // Área principal (Derecha - Mesas o Pista)
+                const areaPanel = document.createElement('div');
+                areaPanel.className = "flex-1 p-4 sm:p-6 overflow-x-auto no-scrollbar flex items-center justify-center min-h-[160px]";
+
+                if (toldo.type === "mesas") {
+                    // Grid para las mesas (5 columnas x 3 filas)
+                    const grid = document.createElement('div');
+                    grid.className = "grid grid-cols-3 sm:grid-cols-5 gap-4 sm:gap-6 min-w-max mx-auto";
+                    
+                    for (let i = 1; i <= toldo.mesas; i++) {
+                        const tableId = `toldo-${toldo.id}-mesa-${i}`;
+                        const isOccupied = tableState[tableId] !== undefined;
+                        const guestName = tableState[tableId] || "";
+
+                        // Diseño de la mesa: Un círculo con borde dorado simulando sillas
+                        const tableDiv = document.createElement('div');
+                        tableDiv.id = tableId;
+                        tableDiv.className = `
+                            relative w-20 h-20 sm:w-24 sm:h-24 rounded-full border-4 shadow-md flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-105 group
+                            ${isOccupied 
+                                ? 'bg-emerald-500 border-emerald-600 text-white' 
+                                : 'bg-white border-[#d4af37] text-gray-700 hover:bg-amber-50'}
+                        `;
+                        tableDiv.onclick = () => openModal(tableId, toldo.name, i);
+
+                        // Decoración sutil de borde simulando sillas
+                        const chairDeco = document.createElement('div');
+                        chairDeco.className = "absolute inset-0 rounded-full border border-dashed border-amber-600/30 m-1 pointer-events-none";
+                        if(!isOccupied) tableDiv.appendChild(chairDeco);
+
+                        // Contenido de texto
+                        const content = document.createElement('div');
+                        content.className = "text-center px-2 w-full flex flex-col items-center z-10";
+                        
+                        if (isOccupied) {
+                            // Mostrar nombre truncado si está ocupado
+                            content.innerHTML = `
+                                <span class="text-[10px] opacity-80 uppercase tracking-wider mb-0.5">Mesa ${i}</span>
+                                <span class="text-xs font-bold leading-tight line-clamp-2 break-words text-center w-full" title="${guestName}">${guestName}</span>
+                            `;
+                        } else {
+                            // Mostrar número si está vacío
+                            content.innerHTML = `
+                                <span class="font-bold text-lg sm:text-xl">M${i}</span>
+                                <span class="text-[10px] text-gray-400 group-hover:text-amber-600 transition-colors uppercase tracking-wider">Libre</span>
+                            `;
+                        }
+                        
+                        tableDiv.appendChild(content);
+                        grid.appendChild(tableDiv);
+                    }
+                    areaPanel.appendChild(grid);
+
+                } else if (toldo.isToldo4) {
+                    // Diseño especial para la Pista de Baile (Toldo 4)
+                    areaPanel.innerHTML = `
+                        <div class="w-full max-w-2xl h-40 sm:h-48 flex items-center justify-between border-2 border-amber-900 rounded-lg shadow-inner overflow-hidden relative">
+                            <!-- Lounge Area Left -->
+                            <div class="w-1/4 h-full bg-[#f4ece3] border-r-2 border-amber-900/20 flex flex-col items-center justify-center gap-2 p-2">
+                                <div class="w-10 h-6 bg-white rounded shadow border border-gray-200"></div>
+                                <div class="w-10 h-10 bg-white border border-[#d4af37] rounded-full shadow flex items-center justify-center text-[10px] text-gray-400">Lounge</div>
+                                <div class="w-10 h-6 bg-white rounded shadow border border-gray-200"></div>
+                            </div>
+                            <!-- Dance Floor Center -->
+                            <div class="flex-1 h-full wood-pattern flex items-center justify-center text-white/50 text-xl font-bold tracking-[0.2em] shadow-inner">
+                                PISTA DE BAILE
+                            </div>
+                            <!-- Stage Right -->
+                            <div class="w-1/4 h-full bg-purple-900/10 border-l-2 border-purple-900/20 flex flex-col items-center justify-center p-2 relative">
+                                <div class="absolute inset-0 bg-gradient-to-r from-transparent to-purple-500/20"></div>
+                                <div class="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center shadow-lg border-2 border-gray-700 z-10">
+                                    <span class="text-[10px] text-gray-300">STAGE</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                toldoElement.appendChild(areaPanel);
+                container.appendChild(toldoElement);
+            });
+        }
+
+        // Lógica del Modal
+        const modal = document.getElementById('table-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const inputName = document.getElementById('guest-name');
+        const inputTableId = document.getElementById('current-table-id');
+        const btnFree = document.getElementById('btn-free');
+
+        function openModal(tableId, toldoName, tableNumber) {
+            inputTableId.value = tableId;
+            modalTitle.textContent = `${toldoName} - Mesa ${tableNumber}`;
+            
+            // Si la mesa ya tiene asignación, llenar el campo y mostrar botón liberar
+            if (tableState[tableId]) {
+                inputName.value = tableState[tableId];
+                btnFree.classList.remove('hidden');
+            } else {
+                inputName.value = '';
+                btnFree.classList.add('hidden');
+            }
+
+            modal.classList.remove('hidden');
+            // Timeout pequeño para asegurar que el display block se aplique antes de hacer focus
+            setTimeout(() => inputName.focus(), 50);
+        }
+
+        function closeModal() {
+            modal.classList.add('hidden');
+            inputName.value = '';
+        }
+
+        function saveTableAssignment(e) {
+            e.preventDefault();
+            const tableId = inputTableId.value;
+            const guestName = inputName.value.trim();
+
+            if (guestName === "") {
+                // Si guardan vacío, tratamos como liberar (opcional, o mostrar un aviso UI custom)
+                freeTable();
+                return;
+            }
+
+            // Actualizar estado
+            tableState[tableId] = guestName;
+            
+            // Re-renderizar todo para reflejar cambios
+            initApp();
+            closeModal();
+        }
+
+        function freeTable() {
+            const tableId = inputTableId.value;
+            if (tableState[tableId]) {
+                delete tableState[tableId];
+            }
+            initApp();
+            closeModal();
+        }
+
+        // Prevenir cierre al hacer clic dentro del contenido del modal
+        document.querySelector('#table-modal > div:last-child').addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+
+        // Arrancar la app
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>

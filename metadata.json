@@ -1,0 +1,6 @@
+{
+  "name": "Plano de Gala — Distribución de Mesas",
+  "description": "Gestor interactivo de distribución de mesas por toldos con estética de gala, pista de baile, búsqueda en vivo, conteo de comensales y exportación en HTML único y CSV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
