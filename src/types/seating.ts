@@ -2,7 +2,16 @@ export type TableTag = 'estandar' | 'vip' | 'familia' | 'honor';
 
 export type StatusFilter = 'todas' | 'libres' | 'ocupadas' | 'sobrantes' | 'vip';
 
-export type ActiveView = 'plano' | 'invitados' | 'resumen';
+export type ActiveView = 'plano' | 'invitados' | 'resumen' | 'control';
+
+export interface ControlPanelConfig {
+  passwordHash: string;
+  passwordSalt: string;
+  reservationsLocked: boolean;
+  editRequiresAdmin: boolean;
+  eventNotice: string;
+  updatedAt: number;
+}
 
 export interface TableAssignment {
   guestName: string;
@@ -36,6 +45,7 @@ export const MIN_SEATS_PER_TABLE = 1;
 export const MAX_SEATS_PER_TABLE = SEATS_PER_TABLE;
 export const MAX_GUEST_NAME_LENGTH = 120;
 export const MAX_NOTES_LENGTH = 240;
+export const MAX_EVENT_NOTICE_LENGTH = 180;
 export const VALID_TABLE_ID_REGEX = /^toldo-(1|2|3|5|6|7|8)-mesa-([1-9]|1[0-5])$/;
 export const VALID_TOLDO_IDS = new Set([1, 2, 3, 5, 6, 7, 8]);
 

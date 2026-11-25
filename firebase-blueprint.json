@@ -69,6 +69,54 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ControlPanelConfig": {
+      "title": "ControlPanelConfig",
+      "description": "Configuración y credenciales derivadas (PBKDF2) del Panel de Control del evento.",
+      "type": "object",
+      "properties": {
+        "passwordHash": {
+          "type": "string",
+          "description": "Hash hexadecimal SHA-256 derivado con PBKDF2 de la contraseña del panel.",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "passwordSalt": {
+          "type": "string",
+          "description": "Salt aleatorio hexadecimal de 16 bytes para PBKDF2.",
+          "minLength": 32,
+          "maxLength": 32,
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "reservationsLocked": {
+          "type": "boolean",
+          "description": "Si es true, bloquea nuevas reservas públicas en el plano."
+        },
+        "editRequiresAdmin": {
+          "type": "boolean",
+          "description": "Si es true, editar o liberar mesas reservadas requiere desbloquear el Panel de Control."
+        },
+        "eventNotice": {
+          "type": "string",
+          "description": "Aviso breve visible en el encabezado del plano para los asistentes.",
+          "minLength": 0,
+          "maxLength": 180
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal del servidor en la última actualización."
+        }
+      },
+      "required": [
+        "passwordHash",
+        "passwordSalt",
+        "reservationsLocked",
+        "editRequiresAdmin",
+        "eventNotice",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -77,6 +125,12 @@
         "$ref": "#/entities/TableReservation"
       },
       "description": "Colección de reservas activas de mesas sincronizadas en tiempo real para acceso directo compartido al plano del salón."
+    },
+    "/appConfig/{configId}": {
+      "schema": {
+        "$ref": "#/entities/ControlPanelConfig"
+      },
+      "description": "Documento único 'controlPanel' con la configuración y hash PBKDF2 del Panel de Control."
     }
   }
 }

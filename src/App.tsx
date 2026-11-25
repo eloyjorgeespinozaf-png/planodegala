@@ -1,12 +1,18 @@
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Lock, Upload } from 'lucide-react';
 import { ActiveView, StatusFilter, TableSelection } from './types/seating';
 import { useSeatingStore } from './hooks/useSeatingStore';
-import { exportToCSV, exportToStandaloneHTML } from './utils/exporters';
+import { useControlPanel } from './hooks/useControlPanel';
+import {
+  exportToBackupJSON,
+  exportToCSV,
+  exportToStandaloneHTML,
+} from './utils/exporters';
 import { TopBar } from './components/TopBar';
 import { FloorPlanView } from './components/FloorPlanView';
 import { GuestsListView } from './components/GuestsListView';
 import { SummaryView } from './components/SummaryView';
+import { ControlPanelView } from './components/ControlPanelView';
 import { AssignmentModal } from './components/AssignmentModal';
 import { ConfirmResetModal } from './components/ConfirmResetModal';
 import { ToastBanner } from './components/ToastBanner';
@@ -25,9 +31,27 @@ export default function App() {
     saveAssignment,
     freeTable,
     clearAllAssignments,
+    clearToldoAssignments,
+    moveOrSwapTable,
+    importBackupJson,
     undoLastRemoval,
     importLocalReservations,
   } = useSeatingStore();
+
+  const {
+    configLoading,
+    isConfigured,
+    isAdminUnlocked,
+    savingConfig,
+    reservationsLocked,
+    editRequiresAdmin,
+    eventNotice,
+    setupPassword,
+    unlockWithPassword,
+    lockPanel,
+    updateSettings,
+    changePassword,
+  } = useControlPanel(showToast);
 
   const [activeView, setActiveView] = useState<ActiveView>('plano');
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,6 +72,11 @@ export default function App() {
     showToast('Exportado listado CSV (distribucion-mesas.csv)');
   };
 
+  const handleExportBackupJSON = () => {
+    exportToBackupJSON(assignments);
+    showToast('Descargado respaldo JSON (respaldo-plano-gala.json)');
+  };
+
   const handlePrint = () => {
     if (activeView !== 'plano') {
       setActiveView('plano');
@@ -64,6 +93,28 @@ export default function App() {
       target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 60);
   };
+
+  // Compute modal edit permission based on Control Panel rules
+  const selectedExisting = selectedTable
+    ? assignments[selectedTable.tableId]
+    : undefined;
+
+  let canEditSelectedTable = true;
+  let modalLockReason: string | null = null;
+
+  if (selectedTable && !isAdminUnlocked) {
+    if (selectedExisting && editRequiresAdmin) {
+      canEditSelectedTable = false;
+      modalLockReason =
+        'Esta mesa ya está reservada y protegida. Desbloquea el Panel de Control con contraseña para editar o quitar la reserva.';
+    } else if (!selectedExisting && reservationsLocked) {
+      canEditSelectedTable = false;
+      modalLockReason =
+        'Las reservas nuevas están cerradas temporalmente por la organización. Solo el Panel de Control puede asignar mesas.';
+    }
+  }
+
+  const canResetAll = !editRequiresAdmin || isAdminUnlocked;
 
   return (
     <div className="relative min-h-screen bg-[#12100C] text-[#1F2421] flex flex-col">
@@ -96,6 +147,44 @@ export default function App() {
       />
 
       <main className="relative z-10 flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+        {/* Admin unlocked session strip when viewing other tabs */}
+        {isAdminUnlocked && activeView !== 'control' && (
+          <div className="mb-4 bg-[#0A0B0A]/85 backdrop-blur-sm border border-[#D4B45E]/60 rounded-xl px-4 py-2.5 text-xs text-[#F3EFE6] flex flex-wrap items-center justify-between gap-3 no-print">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-semibold text-[#F1D68A]">
+                Panel de Control activo
+              </span>
+              <span aria-hidden="true" className="text-[#C9A959]">
+                ·
+              </span>
+              <span className="text-[#F3EFE6]/85">
+                Edición y liberación de mesas habilitadas en esta sesión
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={lockPanel}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#FBF9F5] bg-white/10 hover:bg-white/15 border border-[#C9A959]/45 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Lock className="w-3.5 h-3.5 text-[#F1D68A]" aria-hidden="true" />
+              <span>Bloquear</span>
+            </button>
+          </div>
+        )}
+
+        {/* Official event notice configured in Control Panel */}
+        {eventNotice && activeView !== 'control' && (
+          <div className="mb-4 bg-[#0A0B0A]/82 backdrop-blur-sm border border-[#D4B45E]/60 rounded-xl px-4 py-3 text-xs sm:text-sm text-[#FBF9F5] flex flex-wrap items-center justify-between gap-2 shadow-md">
+            <span>{eventNotice}</span>
+            {reservationsLocked && (
+              <span className="font-semibold text-[#F1D68A] whitespace-nowrap">
+                Reservas cerradas
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Legacy local browser storage migration prompt */}
         {importableLocalCount > 0 && (
           <div className="mb-4 bg-[#0A0B0A]/80 backdrop-blur-sm border border-[#C9A959]/45 rounded-xl px-4 py-2.5 text-xs text-[#F3EFE6] flex flex-wrap items-center justify-between gap-3 no-print">
             <span>
@@ -160,9 +249,39 @@ export default function App() {
               <SummaryView
                 toldoStats={toldoStats}
                 totals={totals}
+                canResetAll={canResetAll}
                 saving={saving}
                 onJumpToToldo={handleJumpToToldo}
                 onRequestReset={() => setConfirmResetOpen(true)}
+                onOpenControlPanel={() => setActiveView('control')}
+              />
+            )}
+
+            {activeView === 'control' && (
+              <ControlPanelView
+                assignments={assignments}
+                toldoStats={toldoStats}
+                totals={totals}
+                savingTables={saving}
+                configLoading={configLoading}
+                isConfigured={isConfigured}
+                isAdminUnlocked={isAdminUnlocked}
+                savingConfig={savingConfig}
+                reservationsLocked={reservationsLocked}
+                editRequiresAdmin={editRequiresAdmin}
+                eventNotice={eventNotice}
+                onSetupPassword={setupPassword}
+                onUnlock={unlockWithPassword}
+                onLock={lockPanel}
+                onUpdateSettings={updateSettings}
+                onChangePassword={changePassword}
+                onEditTable={setSelectedTable}
+                onFreeTable={freeTable}
+                onMoveOrSwapTable={moveOrSwapTable}
+                onClearToldo={clearToldoAssignments}
+                onRequestResetAll={() => setConfirmResetOpen(true)}
+                onExportBackupJSON={handleExportBackupJSON}
+                onImportBackupJSON={importBackupJson}
               />
             )}
           </>
@@ -180,13 +299,14 @@ export default function App() {
 
       <AssignmentModal
         selection={selectedTable}
-        existing={
-          selectedTable ? assignments[selectedTable.tableId] : undefined
-        }
+        existing={selectedExisting}
+        canEdit={canEditSelectedTable}
+        lockReason={modalLockReason}
         saving={saving}
         onClose={() => setSelectedTable(null)}
+        onOpenControlPanel={() => setActiveView('control')}
         onSave={async (data) => {
-          if (!selectedTable) return;
+          if (!selectedTable || !canEditSelectedTable) return;
           await saveAssignment(
             selectedTable.tableId,
             data,
@@ -195,7 +315,7 @@ export default function App() {
           setSelectedTable(null);
         }}
         onFree={async () => {
-          if (!selectedTable) return;
+          if (!selectedTable || !canEditSelectedTable) return;
           await freeTable(
             selectedTable.tableId,
             `${selectedTable.toldoName} · Mesa ${selectedTable.tableNumber}`
@@ -210,6 +330,7 @@ export default function App() {
         saving={saving}
         onCancel={() => setConfirmResetOpen(false)}
         onConfirm={async () => {
+          if (!canResetAll) return;
           await clearAllAssignments();
           setConfirmResetOpen(false);
         }}

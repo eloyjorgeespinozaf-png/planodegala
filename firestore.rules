@@ -34,7 +34,7 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------------------
-    // Entity Validation Blueprint (Anti-Update-Gap + Cross-Field Integrity)
+    // Entity Validation Blueprints (Anti-Update-Gap + Cross-Field Integrity)
     // -------------------------------------------------------------------------
     function isValidTableReservation(data, tableId) {
       return data.keys().hasAll([
@@ -83,25 +83,50 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidControlPanelConfig(data) {
+      return data.keys().hasAll([
+          'passwordHash',
+          'passwordSalt',
+          'reservationsLocked',
+          'editRequiresAdmin',
+          'eventNotice',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'passwordHash',
+          'passwordSalt',
+          'reservationsLocked',
+          'editRequiresAdmin',
+          'eventNotice',
+          'updatedAt'
+        ])
+        && data.passwordHash is string
+        && data.passwordHash.size() == 64
+        && data.passwordHash.matches('^[a-f0-9]{64}$')
+        && data.passwordSalt is string
+        && data.passwordSalt.size() == 32
+        && data.passwordSalt.matches('^[a-f0-9]{32}$')
+        && data.reservationsLocked is bool
+        && data.editRequiresAdmin is bool
+        && data.eventNotice is string
+        && data.eventNotice.size() <= 180
+        && data.updatedAt is timestamp;
+    }
+
     // -------------------------------------------------------------------------
     // Collection: /tableReservations/{tableId}
-    // Direct shared collaborative seating plan (zero PII, strict schema gates)
     // -------------------------------------------------------------------------
     match /tableReservations/{tableId} {
-      // Single-document read enforces path variable hardening & shared scope
       allow get: if isValidTableId(tableId)
         && (resource == null || existing().visibility == 'shared');
 
-      // Secure list query explicitly checks resource.data (no get()/exists() in list)
       allow list: if existing().visibility == 'shared';
 
-      // Create: Path Hardening + Static Blueprint Validation + Server Timestamp Integrity
       allow create: if isValidTableId(tableId)
         && isValidTableReservation(incoming(), tableId)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
-      // Update: Validation helper first + Action-Based affectedKeys + Immutable Fields
       allow update: if isValidTableId(tableId)
         && isValidTableReservation(incoming(), tableId)
         && incoming().tableId == existing().tableId
@@ -118,9 +143,46 @@ service cloud.firestore {
           'updatedAt'
         ]);
 
-      // Delete: Enforces valid table path and shared scope
       allow delete: if isValidTableId(tableId)
         && existing().visibility == 'shared';
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection: /appConfig/{configId} (Singleton 'controlPanel')
+    // -------------------------------------------------------------------------
+    match /appConfig/{configId} {
+      allow get: if configId is string
+        && configId.size() == 12
+        && configId == 'controlPanel';
+
+      allow list: if false;
+
+      allow create: if configId is string
+        && configId.size() == 12
+        && configId == 'controlPanel'
+        && isValidControlPanelConfig(incoming())
+        && incoming().updatedAt == request.time;
+
+      allow update: if configId is string
+        && configId.size() == 12
+        && configId == 'controlPanel'
+        && isValidControlPanelConfig(incoming())
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'reservationsLocked',
+            'editRequiresAdmin',
+            'eventNotice',
+            'updatedAt'
+          ])
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'passwordHash',
+            'passwordSalt',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if false;
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { Lock, Trash2 } from 'lucide-react';
 import { ToldoStats } from '../hooks/useSeatingStore';
 
 interface SummaryViewProps {
@@ -13,17 +13,21 @@ interface SummaryViewProps {
     vipTables: number;
     occupancyRate: number;
   };
+  canResetAll?: boolean;
   saving?: boolean;
   onJumpToToldo: (toldoId: number) => void;
   onRequestReset: () => void;
+  onOpenControlPanel?: () => void;
 }
 
 export function SummaryView({
   toldoStats,
   totals,
+  canResetAll = true,
   saving = false,
   onJumpToToldo,
   onRequestReset,
+  onOpenControlPanel,
 }: SummaryViewProps) {
   return (
     <div>
@@ -50,15 +54,26 @@ export function SummaryView({
           </p>
         </div>
 
-        <button
-          type="button"
-          disabled={totals.occupiedTables === 0 || saving}
-          onClick={onRequestReset}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-red-700 bg-white border border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors whitespace-nowrap shrink-0 no-print"
-        >
-          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-          <span>Limpiar todas las asignaciones</span>
-        </button>
+        {canResetAll ? (
+          <button
+            type="button"
+            disabled={totals.occupiedTables === 0 || saving}
+            onClick={onRequestReset}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-red-700 bg-white border border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors whitespace-nowrap shrink-0 no-print"
+          >
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>Limpiar todas las asignaciones</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenControlPanel}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-[#1F2421] bg-white border border-[#C9A959]/70 hover:bg-[#F3EFE6] rounded-lg transition-colors whitespace-nowrap shrink-0 no-print"
+          >
+            <Lock className="w-3.5 h-3.5 text-[#B59449]" aria-hidden="true" />
+            <span>Gestionar desde Panel de Control</span>
+          </button>
+        )}
       </section>
 
       <div className="mt-6 bg-white/95 backdrop-blur-[2px] border border-[#C9A959]/45 rounded-xl overflow-hidden shadow-[0_12px_32px_-16px_rgba(0,0,0,0.65)]">

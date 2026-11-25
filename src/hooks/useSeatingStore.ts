@@ -547,6 +547,251 @@ export function useSeatingStore() {
     }
   }, [importableLocalEntries, showToast]);
 
+  const moveOrSwapTable = useCallback(
+    async (sourceTableId: string, targetTableId: string): Promise<boolean> => {
+      if (sourceTableId === targetTableId) return false;
+      if (
+        !VALID_TABLE_ID_REGEX.test(sourceTableId) ||
+        !VALID_TABLE_ID_REGEX.test(targetTableId)
+      ) {
+        return false;
+      }
+
+      const sourceEntry = assignments[sourceTableId];
+      if (!sourceEntry) return false;
+
+      const targetParsed = parseTableId(targetTableId);
+      if (
+        !targetParsed ||
+        !VALID_TOLDO_IDS.has(targetParsed.toldoId) ||
+        targetParsed.tableNumber < 1 ||
+        targetParsed.tableNumber > 15
+      ) {
+        return false;
+      }
+
+      const targetEntry = assignments[targetTableId];
+      const sourceRef = doc(db, COLLECTION_NAME, sourceTableId);
+      const targetRef = doc(db, COLLECTION_NAME, targetTableId);
+
+      setSaving(true);
+      try {
+        const batch = writeBatch(db);
+        if (targetEntry) {
+          // Atomic swap between two occupied tables
+          batch.update(sourceRef, {
+            guestName: targetEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
+            guestsCount: Math.min(
+              MAX_SEATS_PER_TABLE,
+              Math.max(MIN_SEATS_PER_TABLE, Math.round(targetEntry.guestsCount))
+            ),
+            tag: targetEntry.tag,
+            notes: targetEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            updatedAt: serverTimestamp(),
+          });
+          batch.update(targetRef, {
+            guestName: sourceEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
+            guestsCount: Math.min(
+              MAX_SEATS_PER_TABLE,
+              Math.max(MIN_SEATS_PER_TABLE, Math.round(sourceEntry.guestsCount))
+            ),
+            tag: sourceEntry.tag,
+            notes: sourceEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // Move reservation to a free table
+          batch.delete(sourceRef);
+          batch.set(targetRef, {
+            tableId: targetTableId,
+            toldoId: targetParsed.toldoId,
+            tableNumber: targetParsed.tableNumber,
+            guestName: sourceEntry.guestName.slice(0, MAX_GUEST_NAME_LENGTH),
+            guestsCount: Math.min(
+              MAX_SEATS_PER_TABLE,
+              Math.max(MIN_SEATS_PER_TABLE, Math.round(sourceEntry.guestsCount))
+            ),
+            tag: sourceEntry.tag,
+            notes: sourceEntry.notes.slice(0, MAX_NOTES_LENGTH),
+            visibility: 'shared',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
+        undoEntriesRef.current = null;
+        showToast(
+          targetEntry
+            ? `Se intercambiaron las reservas entre Toldo ${parseTableId(sourceTableId)?.toldoId} M${parseTableId(sourceTableId)?.tableNumber} y Toldo ${targetParsed.toldoId} M${targetParsed.tableNumber}`
+            : `${sourceEntry.guestName} trasladado a Toldo ${targetParsed.toldoId} · Mesa ${targetParsed.tableNumber}`
+        );
+        return true;
+      } catch (error) {
+        try {
+          handleFirestoreError(error, OperationType.WRITE, COLLECTION_NAME);
+        } catch (wrappedError) {
+          const msg =
+            wrappedError instanceof Error
+              ? wrappedError.message
+              : String(wrappedError);
+          if (isQuotaExceededError(msg)) {
+            setSyncError(
+              wrappedError instanceof Error ? wrappedError : new Error(msg)
+            );
+          } else {
+            showToast('No se pudo mover la reserva. Intenta de nuevo.');
+          }
+        }
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [assignments, showToast]
+  );
+
+  const clearToldoAssignments = useCallback(
+    async (toldoId: number, toldoName: string) => {
+      if (!VALID_TOLDO_IDS.has(toldoId)) return;
+
+      const entries = Object.entries(assignments).filter(([tableId]) => {
+        const parsed = parseTableId(tableId);
+        return parsed?.toldoId === toldoId;
+      });
+      if (entries.length === 0) return;
+
+      setSaving(true);
+      try {
+        const batch = writeBatch(db);
+        const undoList: UndoEntry[] = [];
+
+        for (const [tableId, entry] of entries) {
+          const parsed = parseTableId(tableId);
+          if (!parsed) continue;
+          batch.delete(doc(db, COLLECTION_NAME, tableId));
+          undoList.push({
+            tableId,
+            toldoId: parsed.toldoId,
+            tableNumber: parsed.tableNumber,
+            guestName: entry.guestName,
+            guestsCount: entry.guestsCount,
+            tag: entry.tag,
+            notes: entry.notes,
+          });
+        }
+
+        await batch.commit();
+        undoEntriesRef.current = undoList;
+        showToast(
+          `Se liberaron ${undoList.length} ${
+            undoList.length === 1 ? 'mesa' : 'mesas'
+          } de ${toldoName}`,
+          true
+        );
+      } catch (error) {
+        try {
+          handleFirestoreError(error, OperationType.DELETE, COLLECTION_NAME);
+        } catch (wrappedError) {
+          setSyncError(
+            wrappedError instanceof Error
+              ? wrappedError
+              : new Error(String(wrappedError))
+          );
+        }
+      } finally {
+        setSaving(false);
+      }
+    },
+    [assignments, showToast]
+  );
+
+  const importBackupJson = useCallback(
+    async (raw: unknown): Promise<{ ok: boolean; count: number; error?: string }> => {
+      const sourceObj =
+        raw &&
+        typeof raw === 'object' &&
+        'assignments' in raw &&
+        (raw as { assignments?: unknown }).assignments &&
+        typeof (raw as { assignments?: unknown }).assignments === 'object'
+          ? (raw as { assignments: unknown }).assignments
+          : raw;
+
+      const sanitized = sanitizeLegacyLocalMap(sourceObj);
+      const entries = Object.entries(sanitized);
+      if (entries.length === 0) {
+        return {
+          ok: false,
+          count: 0,
+          error: 'El archivo no contiene reservas válidas para importar.',
+        };
+      }
+
+      setSaving(true);
+      try {
+        const batch = writeBatch(db);
+        for (const [tableId, entry] of entries) {
+          const parsed = parseTableId(tableId);
+          if (!parsed || !VALID_TOLDO_IDS.has(parsed.toldoId)) continue;
+          const docRef = doc(db, COLLECTION_NAME, tableId);
+          if (assignments[tableId]) {
+            batch.update(docRef, {
+              guestName: entry.guestName,
+              guestsCount: entry.guestsCount,
+              tag: entry.tag,
+              notes: entry.notes,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            batch.set(docRef, {
+              tableId,
+              toldoId: parsed.toldoId,
+              tableNumber: parsed.tableNumber,
+              guestName: entry.guestName,
+              guestsCount: entry.guestsCount,
+              tag: entry.tag,
+              notes: entry.notes,
+              visibility: 'shared',
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
+
+        await batch.commit();
+        undoEntriesRef.current = null;
+        showToast(
+          entries.length === 1
+            ? 'Se restauró 1 reserva desde el respaldo'
+            : `Se restauraron ${entries.length} reservas desde el respaldo`
+        );
+        return { ok: true, count: entries.length };
+      } catch (error) {
+        try {
+          handleFirestoreError(error, OperationType.WRITE, COLLECTION_NAME);
+        } catch (wrappedError) {
+          const msg =
+            wrappedError instanceof Error
+              ? wrappedError.message
+              : String(wrappedError);
+          if (isQuotaExceededError(msg)) {
+            setSyncError(
+              wrappedError instanceof Error ? wrappedError : new Error(msg)
+            );
+          }
+          return {
+            ok: false,
+            count: 0,
+            error: 'No se pudo importar el respaldo en Firestore.',
+          };
+        }
+      } finally {
+        setSaving(false);
+      }
+    },
+    [assignments, showToast]
+  );
+
   const toldoStats = useMemo<ToldoStats[]>(() => {
     return SEATING_TOLDOS.map((toldo) => {
       const total = toldo.mesas ?? 15;
@@ -623,6 +868,9 @@ export function useSeatingStore() {
     saveAssignment,
     freeTable,
     clearAllAssignments,
+    clearToldoAssignments,
+    moveOrSwapTable,
+    importBackupJson,
     undoLastRemoval,
     importLocalReservations,
   };

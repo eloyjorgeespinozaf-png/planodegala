@@ -17,6 +17,7 @@ const NAV_ITEMS: { id: ActiveView; label: string }[] = [
   { id: 'plano', label: 'Plano' },
   { id: 'invitados', label: 'Invitados' },
   { id: 'resumen', label: 'Resumen' },
+  { id: 'control', label: 'Control' },
 ];
 
 export function TopBar({

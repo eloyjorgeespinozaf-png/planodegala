@@ -79,6 +79,18 @@ export function exportToCSV(assignments: AssignmentsMap): void {
   triggerFileDownload(blob, 'distribucion-mesas.csv');
 }
 
+export function exportToBackupJSON(assignments: AssignmentsMap): void {
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    assignments,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json;charset=utf-8;',
+  });
+  triggerFileDownload(blob, 'respaldo-plano-gala.json');
+}
+
 async function loadImageDataUri(src: string): Promise<string | null> {
   try {
     const res = await fetch(src);

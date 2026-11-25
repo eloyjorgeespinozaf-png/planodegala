@@ -14,8 +14,11 @@ import {
 interface AssignmentModalProps {
   selection: TableSelection | null;
   existing?: TableAssignment;
+  canEdit?: boolean;
+  lockReason?: string | null;
   saving?: boolean;
   onClose: () => void;
+  onOpenControlPanel?: () => void;
   onSave: (data: {
     guestName: string;
     guestsCount: number;
@@ -43,8 +46,11 @@ const PREVIEW_CHAIRS = Array.from({ length: SEATS_PER_TABLE }, (_, idx) => {
 export function AssignmentModal({
   selection,
   existing,
+  canEdit = true,
+  lockReason = null,
   saving = false,
   onClose,
+  onOpenControlPanel,
   onSave,
   onFree,
 }: AssignmentModalProps) {
@@ -92,14 +98,14 @@ export function AssignmentModal({
       : SEATS_PER_TABLE;
 
   function handleSelectChairs(count: number) {
-    if (saving) return;
+    if (!canEdit || saving) return;
     setSelectedChairs(count);
     if (chairsError) setChairsError('');
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (saving) return;
+    if (!canEdit || saving) return;
     const trimmed = guestName.trim();
 
     if (!trimmed) {
@@ -164,6 +170,26 @@ export function AssignmentModal({
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
+          {!canEdit && lockReason && (
+            <div className="px-3.5 py-3 bg-[#F3EFE6] border border-[#C9A959]/65 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <p className="text-xs text-[#1F2421] leading-relaxed">
+                {lockReason}
+              </p>
+              {onOpenControlPanel && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenControlPanel();
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-white bg-[#0F6B4E] hover:bg-[#0B533C] rounded-md transition-colors whitespace-nowrap shrink-0"
+                >
+                  Ir a Control
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Guest / Family Name */}
           <div>
             <label
@@ -177,7 +203,7 @@ export function AssignmentModal({
               id="modal-guest-name"
               type="text"
               value={guestName}
-              disabled={saving}
+              disabled={!canEdit || saving}
               maxLength={MAX_GUEST_NAME_LENGTH}
               onChange={(e) => {
                 setGuestName(e.target.value);
@@ -328,7 +354,7 @@ export function AssignmentModal({
                         <button
                           key={num}
                           type="button"
-                          disabled={saving}
+                          disabled={!canEdit || saving}
                           onClick={() => handleSelectChairs(num)}
                           className={`h-10 rounded-lg font-mono tabular-nums text-sm font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F6B4E] disabled:opacity-70 ${
                             active
@@ -393,7 +419,7 @@ export function AssignmentModal({
                   <button
                     key={option}
                     type="button"
-                    disabled={saving}
+                    disabled={!canEdit || saving}
                     onClick={() => setTag(option)}
                     className={`px-2.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap disabled:opacity-70 ${
                       isSelected
@@ -422,7 +448,7 @@ export function AssignmentModal({
               id="modal-guest-notes"
               type="text"
               value={notes}
-              disabled={saving}
+              disabled={!canEdit || saving}
               maxLength={MAX_NOTES_LENGTH}
               onChange={(e) => setNotes(e.target.value)}
               autoComplete="off"
@@ -433,7 +459,7 @@ export function AssignmentModal({
 
           {/* Footer buttons */}
           <div className="pt-4 border-t border-[#E4DCCE] flex flex-wrap items-center justify-between gap-2">
-            {isOccupied ? (
+            {isOccupied && canEdit ? (
               <button
                 type="button"
                 disabled={saving}
@@ -452,15 +478,17 @@ export function AssignmentModal({
                 onClick={onClose}
                 className="px-4 py-2 text-xs font-semibold text-[#5C635E] hover:text-[#1F2421] bg-[#F3EFE6] hover:bg-[#E4DCCE]/60 rounded-lg transition-colors whitespace-nowrap"
               >
-                Cancelar
+                {canEdit ? 'Cancelar' : 'Cerrar'}
               </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#0F6B4E] hover:bg-[#0B533C] disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap"
-              >
-                {saving ? 'Guardando...' : 'Guardar reserva'}
-              </button>
+              {canEdit && (
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#0F6B4E] hover:bg-[#0B533C] disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {saving ? 'Guardando...' : 'Guardar reserva'}
+                </button>
+              )}
             </div>
           </div>
         </form>
