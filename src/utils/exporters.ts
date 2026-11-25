@@ -233,8 +233,8 @@ export async function exportToStandaloneHTML(
 
       <form id="assignment-form" class="space-y-4">
         <div>
-          <label for="guest-name" class="block text-xs font-semibold text-[#1F2421] mb-1.5">Nombre del invitado o familia</label>
-          <input id="guest-name" type="text" autocomplete="off" placeholder="Ej. Familia Mendoza" class="w-full px-3.5 py-2.5 text-sm border border-[#E4DCCE] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E]" />
+          <label for="guest-name" class="block text-xs font-semibold text-[#1F2421] mb-1.5">Nombre del invitado o familia (EN MAYÚSCULAS)</label>
+          <input id="guest-name" type="text" autocomplete="off" placeholder="EJ. FAMILIA MENDOZA" class="w-full px-3.5 py-2.5 text-sm uppercase border border-[#E4DCCE] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E]" />
           <p id="form-error" class="hidden mt-1 text-xs text-red-700"></p>
         </div>
 
@@ -259,7 +259,7 @@ export async function exportToStandaloneHTML(
           </div>
           <div>
             <label for="guest-notes" class="block text-xs font-semibold text-[#1F2421] mb-1.5">Notas opcionales</label>
-            <input id="guest-notes" type="text" autocomplete="off" placeholder="Ej. Menú infantil" class="w-full px-3 py-2 text-sm border border-[#E4DCCE] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E]" />
+            <input id="guest-notes" type="text" autocomplete="off" placeholder="EJ. MENÚ INFANTIL" class="w-full px-3 py-2 text-sm uppercase border border-[#E4DCCE] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E]" />
           </div>
         </div>
 
@@ -618,10 +618,17 @@ export async function exportToStandaloneHTML(
         currentTableId = null;
       }
 
+      inputName.addEventListener('input', function () {
+        inputName.value = inputName.value.toLocaleUpperCase('es-ES');
+      });
+      inputNotes.addEventListener('input', function () {
+        inputNotes.value = inputNotes.value.toLocaleUpperCase('es-ES');
+      });
+
       document.getElementById('assignment-form').addEventListener('submit', function (e) {
         e.preventDefault();
         if (!currentTableId) return;
-        const name = inputName.value.trim();
+        const name = inputName.value.trim().toLocaleUpperCase('es-ES');
         if (!name) {
           if (state[currentTableId]) {
             delete state[currentTableId];
@@ -644,7 +651,7 @@ export async function exportToStandaloneHTML(
           guestName: name,
           guestsCount: selectedChairs,
           tag: inputTag.value || 'estandar',
-          notes: inputNotes.value.trim(),
+          notes: inputNotes.value.trim().toLocaleUpperCase('es-ES'),
           updatedAt: Date.now()
         };
         persist();

@@ -79,20 +79,28 @@ export function formatRemainingSeats(remaining: number): string {
   return `Sobran ${remaining} sillas`;
 }
 
+export function toReservationUpper(value: string): string {
+  return value.toLocaleUpperCase('es-ES');
+}
+
 export function getTableBookings(assignment?: TableAssignment): TableBooking[] {
   if (!assignment) return [];
   if (
     Array.isArray(assignment.reservations) &&
     assignment.reservations.length > 0
   ) {
-    return assignment.reservations;
+    return assignment.reservations.map((b) => ({
+      ...b,
+      guestName: toReservationUpper(b.guestName),
+      notes: toReservationUpper(b.notes),
+    }));
   }
   return [
     {
-      guestName: assignment.guestName,
+      guestName: toReservationUpper(assignment.guestName),
       guestsCount: assignment.guestsCount,
       tag: assignment.tag,
-      notes: assignment.notes,
+      notes: toReservationUpper(assignment.notes),
     },
   ];
 }
@@ -114,21 +122,23 @@ export function summarizeBookings(bookings: TableBooking[]): {
 } {
   const cleaned = bookings
     .map((b) => ({
-      guestName: b.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH),
+      guestName: toReservationUpper(b.guestName.trim()).slice(
+        0,
+        MAX_GUEST_NAME_LENGTH
+      ),
       guestsCount: Math.min(
         MAX_SEATS_PER_TABLE,
         Math.max(MIN_SEATS_PER_TABLE, Math.round(b.guestsCount))
       ),
       tag: b.tag,
-      notes: b.notes.trim().slice(0, MAX_NOTES_LENGTH),
+      notes: toReservationUpper(b.notes.trim()).slice(0, MAX_NOTES_LENGTH),
     }))
     .filter((b) => b.guestName.length > 0);
 
   const totalSeats = cleaned.reduce((sum, b) => sum + b.guestsCount, 0);
-  const combinedName = cleaned
-    .map((b) => b.guestName)
-    .join(' + ')
-    .slice(0, MAX_COMBINED_GUEST_NAME_LENGTH);
+  const combinedName = toReservationUpper(
+    cleaned.map((b) => b.guestName).join(' + ')
+  ).slice(0, MAX_COMBINED_GUEST_NAME_LENGTH);
 
   let primaryTag: TableTag = 'estandar';
   for (const b of cleaned) {
@@ -137,7 +147,7 @@ export function summarizeBookings(bookings: TableBooking[]): {
     }
   }
 
-  const combinedNotes = (
+  const combinedNotes = toReservationUpper(
     cleaned.length === 1
       ? cleaned[0].notes
       : cleaned

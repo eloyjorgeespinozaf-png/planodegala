@@ -43,6 +43,7 @@ import {
   hasVipOrHonorBooking,
   parseTableId,
   summarizeBookings,
+  toReservationUpper,
 } from '../types/seating';
 
 const LEGACY_STORAGE_KEY = 'plano_gala_mesas_v1';
@@ -84,7 +85,7 @@ function sanitizeBooking(raw: unknown): TableBooking | null {
   const obj = raw as Partial<TableBooking>;
   const guestName =
     typeof obj.guestName === 'string'
-      ? obj.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH)
+      ? toReservationUpper(obj.guestName.trim()).slice(0, MAX_GUEST_NAME_LENGTH)
       : '';
   if (!guestName) return null;
   const rawCount = Number(obj.guestsCount);
@@ -100,7 +101,7 @@ function sanitizeBooking(raw: unknown): TableBooking | null {
       : 'estandar';
   const notes =
     typeof obj.notes === 'string'
-      ? obj.notes.trim().slice(0, MAX_NOTES_LENGTH)
+      ? toReservationUpper(obj.notes.trim()).slice(0, MAX_NOTES_LENGTH)
       : '';
 
   return { guestName, guestsCount, tag, notes };
@@ -124,7 +125,10 @@ function parseDocToAssignment(data: Record<string, unknown>): TableAssignment | 
   if (bookings.length === 0) {
     const guestName =
       typeof data.guestName === 'string'
-        ? data.guestName.trim().slice(0, MAX_GUEST_NAME_LENGTH)
+        ? toReservationUpper(data.guestName.trim()).slice(
+            0,
+            MAX_GUEST_NAME_LENGTH
+          )
         : '';
     if (!guestName) return null;
     const rawCount = Number(data.guestsCount);
@@ -140,7 +144,7 @@ function parseDocToAssignment(data: Record<string, unknown>): TableAssignment | 
         : 'estandar';
     const notes =
       typeof data.notes === 'string'
-        ? data.notes.trim().slice(0, MAX_NOTES_LENGTH)
+        ? toReservationUpper(data.notes.trim()).slice(0, MAX_NOTES_LENGTH)
         : '';
     bookings = [{ guestName, guestsCount, tag, notes }];
   }
@@ -167,7 +171,10 @@ function sanitizeLegacyLocalMap(raw: unknown): AssignmentsMap {
 
     if (typeof value === 'string' && value.trim()) {
       const booking: TableBooking = {
-        guestName: value.trim().slice(0, MAX_GUEST_NAME_LENGTH),
+        guestName: toReservationUpper(value.trim()).slice(
+          0,
+          MAX_GUEST_NAME_LENGTH
+        ),
         guestsCount: DEFAULT_SEATS_PER_TABLE,
         tag: 'estandar',
         notes: '',

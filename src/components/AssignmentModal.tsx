@@ -12,6 +12,7 @@ import {
   formatRemainingSeats,
   getRemainingSeats,
   getTableBookings,
+  toReservationUpper,
 } from '../types/seating';
 
 interface AssignmentModalProps {
@@ -159,10 +160,10 @@ export function AssignmentModal({
     const target = bookings[index];
     if (!target) return;
     setEditingIndex(index);
-    setGuestName(target.guestName);
+    setGuestName(toReservationUpper(target.guestName));
     setSelectedChairs(target.guestsCount);
     setTag(target.tag);
-    setNotes(target.notes);
+    setNotes(toReservationUpper(target.notes));
     setNameError('');
     setChairsError('');
     setSubmitError('');
@@ -195,7 +196,7 @@ export function AssignmentModal({
     e.preventDefault();
     if (!showForm || saving) return;
 
-    const trimmed = guestName.trim();
+    const trimmed = toReservationUpper(guestName.trim());
     if (!trimmed) {
       setNameError('Ingresa el nombre del invitado o familia.');
       inputRef.current?.focus();
@@ -220,7 +221,7 @@ export function AssignmentModal({
       guestName: trimmed,
       guestsCount: effectiveSelected,
       tag,
-      notes: notes.trim(),
+      notes: toReservationUpper(notes.trim()),
     };
 
     const result = isEditing
@@ -468,8 +469,8 @@ export function AssignmentModal({
                 className="block text-xs font-semibold text-[#1F2421] mb-1.5"
               >
                 {isOccupied && !isEditing
-                  ? 'Nombre de la otra familia o persona'
-                  : 'Nombre del invitado o familia'}
+                  ? 'Nombre de la otra familia o persona (EN MAYÚSCULAS)'
+                  : 'Nombre del invitado o familia (EN MAYÚSCULAS)'}
               </label>
               <input
                 ref={inputRef}
@@ -479,17 +480,17 @@ export function AssignmentModal({
                 disabled={saving}
                 maxLength={MAX_GUEST_NAME_LENGTH}
                 onChange={(e) => {
-                  setGuestName(e.target.value);
+                  setGuestName(toReservationUpper(e.target.value));
                   if (nameError) setNameError('');
                   if (submitError) setSubmitError('');
                 }}
                 autoComplete="off"
                 placeholder={
                   isOccupied && !isEditing
-                    ? 'Ej. Familia Rojas / Carlos Mendoza'
-                    : 'Ej. Familia Pérez'
+                    ? 'EJ. FAMILIA ROJAS / CARLOS MENDOZA'
+                    : 'EJ. FAMILIA PÉREZ'
                 }
-                className="w-full px-3.5 py-2.5 text-sm bg-white disabled:bg-[#F3EFE6]/60 border border-[#E4DCCE] rounded-lg text-[#1F2421] placeholder:text-[#5C635E]/65 focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E] transition-colors"
+                className="w-full px-3.5 py-2.5 text-sm uppercase bg-white disabled:bg-[#F3EFE6]/60 border border-[#E4DCCE] rounded-lg text-[#1F2421] placeholder:text-[#5C635E]/65 focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E] transition-colors"
               />
               {nameError && (
                 <p className="mt-1.5 text-xs text-red-700" role="alert">
@@ -792,10 +793,10 @@ export function AssignmentModal({
                 value={notes}
                 disabled={saving}
                 maxLength={MAX_NOTES_LENGTH}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => setNotes(toReservationUpper(e.target.value))}
                 autoComplete="off"
-                placeholder="Ej. Menú vegetariano, silla para bebé"
-                className="w-full px-3.5 py-2 text-sm bg-white disabled:bg-[#F3EFE6]/60 border border-[#E4DCCE] rounded-lg text-[#1F2421] placeholder:text-[#5C635E]/65 focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E] transition-colors"
+                placeholder="EJ. MENÚ VEGETARIANO, SILLA PARA BEBÉ"
+                className="w-full px-3.5 py-2 text-sm uppercase bg-white disabled:bg-[#F3EFE6]/60 border border-[#E4DCCE] rounded-lg text-[#1F2421] placeholder:text-[#5C635E]/65 focus:outline-none focus:ring-2 focus:ring-[#0F6B4E]/30 focus:border-[#0F6B4E] transition-colors"
               />
             </div>
 

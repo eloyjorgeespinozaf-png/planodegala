@@ -1,4 +1,4 @@
-import { SEATS_PER_TABLE } from '../types/seating';
+import { SEATS_PER_TABLE, toReservationUpper } from '../types/seating';
 
 export type TableShape = 'round' | 'rect';
 
@@ -89,11 +89,11 @@ export const RECT_CHAIRS: {
 ];
 
 export function getShortTableLabel(name: string, maxLen = 11): string {
-  const trimmed = name.trim();
+  const trimmed = toReservationUpper(name.trim());
   if (trimmed.length <= maxLen) return trimmed;
   const parts = trimmed.split(/\s+/);
-  if (parts.length > 1 && parts[0].toLowerCase() === 'familia' && parts[1]) {
-    const candidate = `Fam. ${parts[1]}`;
+  if (parts.length > 1 && parts[0] === 'FAMILIA' && parts[1]) {
+    const candidate = `FAM. ${parts[1]}`;
     return candidate.length <= maxLen
       ? candidate
       : `${candidate.slice(0, maxLen - 1)}…`;
